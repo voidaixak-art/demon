@@ -3,6 +3,7 @@ import re
 import json
 import time
 import sys
+import requests
 from typing import List, Dict, Any
 
 if sys.platform == "win32":
@@ -14,33 +15,13 @@ if sys.platform == "win32":
 from .client import AxiomClient
 from .sensory_gemini import GeminiPerception
 
+NLP_SERVER_URL = "http://localhost:8081/extract"
+
 class AutonomousCrawler:
     def __init__(self):
         self.client = AxiomClient()
         self.gemini = GeminiPerception()
-        
-        print("🧠 [Crawler] Loading spaCy offline NLP model (System 1)...")
-        try:
-            import spacy
-            self.nlp = spacy.load("en_core_web_sm")
-            self.has_spacy = True
-            print("✅ [Crawler] spaCy loaded successfully. Ready for offline deep reading.")
-        except ImportError:
-            self.has_spacy = False
-            print("⚠️ [Crawler] spaCy not found. Will rely heavily on Gemini API (Watch out for quotas).")
-            print("   -> Run: pip install spacy && python -m spacy download en_core_web_sm")
-            
-        print("🧠 [Crawler] Loading NLTK WordNet (Offline Dictionary)...")
-        try:
-            import nltk
-            from nltk.corpus import wordnet as wn
-            nltk.download('wordnet', quiet=True)
-            self.has_nltk = True
-            self.wn = wn
-            print("✅ [Crawler] NLTK WordNet loaded for offline synonym expansion.")
-        except ImportError:
-            self.has_nltk = False
-            print("⚠️ [Crawler] NLTK not found. Run: pip install nltk")
+        print("🧠 [Crawler] Connecting to Central NLP Server at :8081...")
 
     def fetch_gutenberg_book(self, book_id: int) -> str:
         url = f"https://www.gutenberg.org/files/{book_id}/{book_id}-0.txt"
@@ -56,7 +37,6 @@ class AutonomousCrawler:
             return ""
 
     def chunk_text(self, text: str, chunk_size: int = 500) -> List[str]:
-        # Remove Project Gutenberg header/footer
         start_match = re.search(r'\*\*\* START OF TH(?:E|IS) PROJECT GUTENBERG EBOOK.*?\*\*\*', text)
         end_match = re.search(r'\*\*\* END OF TH(?:E|IS) PROJECT GUTENBERG EBOOK.*?\*\*\*', text)
         
@@ -68,120 +48,26 @@ class AutonomousCrawler:
         paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text) if len(p.strip()) > 50]
         return paragraphs
 
-    def process_offline_spacy(self, paragraph: str) -> List[Dict[str, str]]:
-        if not self.has_spacy:
-            return []
-        
-        doc = self.nlp(paragraph)
-        extracted = []
-        
-        # 1. Advanced Subject-Verb-Object (SVO) extraction
-        for token in doc:
-            if token.pos_ == "VERB" and not token.is_stop:
-                subj = None
-                obj = None
-                for child in token.children:
-                    if child.dep_ in ("nsubj", "nsubjpass"):
-                        subj = child.lemma_.title()
-                    elif child.dep_ in ("dobj", "pobj", "attr", "acomp", "prep"):
-                        obj = child.lemma_.title()
-                
-                if subj and obj and len(subj) > 2 and len(obj) > 2:
-                    extracted.append({
-                        "source": subj,
-                        "target": obj,
-                        "relation": token.lemma_.capitalize(),
-                        "confidence": 0.85
-                    })
-                    
-        # 2. Adjective-Noun pairs (e.g., "Good Citizen" -> [Citizen] --Is--> [Good])
-        for token in doc:
-            if token.pos_ == "ADJ" and token.dep_ == "amod":
-                head_noun = token.head.lemma_.title()
-                adj = token.lemma_.title()
-                if len(head_noun) > 2 and len(adj) > 2:
-                    extracted.append({
-                        "source": head_noun,
-                        "target": adj,
-                        "relation": "Is",
-                        "confidence": 0.90
-                    })
-                    
-        # 3. Noun Compounds (e.g., "Knowledge Graph" -> [Graph] --Relates_To--> [Knowledge])
-        for token in doc:
-            if token.dep_ == "compound" and token.head.pos_ in ("NOUN", "PROPN"):
-                modifier = token.lemma_.title()
-                head_noun = token.head.lemma_.title()
-                if len(modifier) > 2 and len(head_noun) > 2:
-                    extracted.append({
-                        "source": head_noun,
-                        "target": modifier,
-                        "relation": "Relates_To",
-                        "confidence": 0.80
-                    })
-                    
-        # Filter duplicates
-        unique_extracted = { (e['source'], e['target'], e['relation']): e for e in extracted }
-        return list(unique_extracted.values())
-
-    def enrich_with_wordnet(self, relations: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        if not self.has_nltk:
-            return relations
-            
-        enriched = list(relations)
-        concepts = set()
-        for r in relations:
-            concepts.add(r['source'].lower())
-            concepts.add(r['target'].lower())
-            
-        for concept in concepts:
-            synsets = self.wn.synsets(concept)
-            if not synsets:
-                continue
-            
-            # Take the most common synonym and antonym
-            syn_added = False
-            ant_added = False
-            
-            for syn in synsets:
-                for lemma in syn.lemmas():
-                    syn_name = lemma.name().replace('_', ' ').title()
-                    if syn_name.lower() != concept and not syn_added:
-                        enriched.append({
-                            "source": concept.title(),
-                            "target": syn_name,
-                            "relation": "Synonym",
-                            "confidence": 0.95
-                        })
-                        syn_added = True
-                        
-                    if lemma.antonyms() and not ant_added:
-                        ant_name = lemma.antonyms()[0].name().replace('_', ' ').title()
-                        enriched.append({
-                            "source": concept.title(),
-                            "target": ant_name,
-                            "relation": "Antonym",
-                            "confidence": 0.95
-                        })
-                        ant_added = True
-                
-                if syn_added and ant_added:
-                    break
-                    
-        return enriched
+    def process_central_nlp(self, paragraph: str) -> List[Dict[str, str]]:
+        try:
+            response = requests.post(NLP_SERVER_URL, json={"text": paragraph}, timeout=10)
+            if response.status_code == 200:
+                return response.json().get("relations", [])
+        except requests.exceptions.RequestException:
+            pass
+        return []
 
     def ingest_paragraph(self, paragraph: str, dimension: str):
         print(f"\n📖 [READING] {paragraph[:100]}...")
         
         relations = []
         
-        # 1. Try offline spaCy first (Massively upgraded SVO/Noun/Adj rules)
-        if self.has_spacy:
-            relations = self.process_offline_spacy(paragraph)
+        # Ask the Central NLP Server (100% Offline, Zero RAM cost on Crawler!)
+        relations = self.process_central_nlp(paragraph)
         
-        # 2. EXTREME FALLBACK: Only if spaCy completely fails AND text is substantial
+        # EXTREME FALLBACK: Only if NLP server fails AND text is substantial
         if not relations and len(paragraph.split()) > 15:
-            print(f"⚠️ [System 1 Fail] spaCy found nothing. Falling back to Gemini as last resort...")
+            print(f"⚠️ [System 1 Fail] Central NLP found nothing. Falling back to Gemini as last resort...")
             prompt = f"""
             Analyze the following text ontologically. Extract 1 or 2 absolute causal or logical truths.
             Return ONLY a valid JSON array of objects with 'source', 'target', and 'relation' (e.g. 'Causes', 'Implies', 'Produces').
@@ -191,13 +77,10 @@ class AutonomousCrawler:
             if isinstance(result, list):
                 for r in result:
                     if "source" in r and "target" in r and "relation" in r:
-                        r["confidence"] = 0.95
+                        r["confidence"] = "0.95"
                         relations.append(r)
 
-        # 3. Inject into Rust Axiom Engine
-        # Enrich with dictionary logic first
-        relations = self.enrich_with_wordnet(relations)
-        
+        # Inject into Rust Axiom Engine
         for rel in relations:
             s_name = str(rel["source"])[:50]
             t_name = str(rel["target"])[:50]

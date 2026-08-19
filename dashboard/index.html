@@ -3,64 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Axiom Engine 2.0 • 3D Mind Map</title>
+  <title>Axiom Neural Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
-  <script src="//unpkg.com/3d-force-graph"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- The 3D Graph Container -->
-  <div id="3d-graph"></div>
-
-  <!-- Minimal Overlay UI -->
-  <div class="overlay-ui">
-    <div class="header">
-      <div class="logo">
-        <div class="ego-pulse"></div>
-        <div class="logo-text">
-          <h1>AXIOM <span>3D</span></h1>
-          <p>Living Neuro-Symbolic Graph</p>
-        </div>
-      </div>
-      <div class="status-indicator">
-        <div class="status-dot"></div>
-        <span id="daemon-status">ONLINE</span>
-      </div>
+  <!-- Axiom Pure Terminal Interface -->
+  <div class="terminal-container">
+    <div class="terminal-header">
+      <div class="terminal-title">AXIOM // NLP TERMINAL</div>
+      <div class="terminal-status"><span class="pulse"></span> NLP CORE ONLINE</div>
     </div>
-
-    <!-- Telemetry Stats -->
-    <div class="telemetry">
-      <div class="stat-badge">
-        <span class="label">CONCEPTS</span>
-        <span class="value" id="stat-nodes">0</span>
-      </div>
-      <div class="stat-badge">
-        <span class="label">SYNAPSES</span>
-        <span class="value" id="stat-links">0</span>
-      </div>
-      <div class="stat-badge">
-        <span class="label">EGO LINKS</span>
-        <span class="value" id="stat-ego">0</span>
-      </div>
+    
+    <div class="voice-terminal" id="voice-terminal">
+      <div class="voice-line system">Initializing Axiom NLP Core...</div>
+      <div class="voice-line system">Connecting to Rust Graph Backend... OK.</div>
+      <div class="voice-line system">Loading WordNet & Coreference Models... OK.</div>
     </div>
-
-    <!-- Quick Tools -->
-    <div class="tools-panel">
-      <button class="btn-action" id="btn-refresh">🔄 Sync Brain</button>
-    </div>
-    <!-- The Subconscious Voice Box -->
-    <div class="voice-box">
-      <div class="voice-terminal" id="voice-terminal">
-        <div class="voice-line system">Axiom Subconscious Online. Awaiting query...</div>
-      </div>
-      <form id="voice-form" class="voice-form">
-        <span class="prompt-arrow">></span>
-        <input type="text" id="voice-input" placeholder="Ask the brain... (e.g. 'Justice')" autocomplete="off" />
-        <button type="submit" class="voice-btn">ASK</button>
-      </form>
-    </div>
+    
+    <form id="voice-form" class="voice-form">
+      <span class="prompt-arrow">root@axiom:~$</span>
+      <input type="text" id="voice-input" placeholder="Enter query..." autocomplete="off" autofocus />
+      <button type="submit" class="voice-btn">EXEC</button>
+    </form>
   </div>
 
   <script src="app.js"></script>
