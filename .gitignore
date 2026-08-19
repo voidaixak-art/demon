@@ -1,0 +1,22 @@
+# Rust
+/target/
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+env/
+.venv/
+
+# Axiom Engine Database
+*.db
+*.wal
+*.snap
+*.snap.tmp
+
+# OS
+.DS_Store
+Thumbs.db
