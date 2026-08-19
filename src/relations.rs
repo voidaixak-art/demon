@@ -6,12 +6,16 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Relation {
     Implies,
+    Proves,
     Contradicts,
     Causes,
     TransformsInto,
     Equivalent,
     IsA,
     Evolved_Vector_Link,
+    TemporalBefore,
+    TemporalAfter,
+    Mapped_Via,
     Custom(String),
 }
 
@@ -19,12 +23,16 @@ impl Relation {
     pub fn as_str(&self) -> String {
         match self {
             Relation::Implies => "Implies".to_string(),
+            Relation::Proves => "Proves".to_string(),
             Relation::Contradicts => "Contradicts".to_string(),
             Relation::Causes => "Causes".to_string(),
             Relation::TransformsInto => "TransformsInto".to_string(),
             Relation::Equivalent => "Equivalent".to_string(),
             Relation::IsA => "IsA".to_string(),
             Relation::Evolved_Vector_Link => "Evolved_Vector_Link".to_string(),
+            Relation::TemporalBefore => "TemporalBefore".to_string(),
+            Relation::TemporalAfter => "TemporalAfter".to_string(),
+            Relation::Mapped_Via => "Mapped_Via".to_string(),
             Relation::Custom(s) => s.clone(),
         }
     }
@@ -32,37 +40,40 @@ impl Relation {
     pub fn from_str(s: &str) -> Self {
         match s.trim().to_lowercase().as_str() {
             "implies" => Relation::Implies,
+            "proves" => Relation::Proves,
             "contradicts" => Relation::Contradicts,
             "causes" => Relation::Causes,
             "transformsinto" | "transforms_into" => Relation::TransformsInto,
             "equivalent" => Relation::Equivalent,
             "isa" | "is_a" => Relation::IsA,
             "evolved_vector_link" | "vector_link" => Relation::Evolved_Vector_Link,
+            "temporalbefore" | "temporal_before" | "before" => Relation::TemporalBefore,
+            "temporalafter" | "temporal_after" | "after" => Relation::TemporalAfter,
+            "mapped_via" => Relation::Mapped_Via,
             _ => Relation::Custom(s.trim().to_string()),
         }
     }
 
     pub fn is_traversable(&self) -> bool {
-        matches!(
-            self,
-            Relation::Implies
-                | Relation::Causes
-                | Relation::TransformsInto
-                | Relation::Equivalent
-                | Relation::IsA
-                | Relation::Evolved_Vector_Link
-        )
+        match self {
+            Relation::Contradicts => false,
+            _ => true,
+        }
     }
 
     pub fn symbol(&self) -> String {
         match self {
             Relation::Implies => "⟹".to_string(),
+            Relation::Proves => "∎ (Proves)".to_string(),
             Relation::Contradicts => "⟂ (Contradicts)".to_string(),
             Relation::Causes => "➔ (Causes)".to_string(),
             Relation::TransformsInto => "⟿ (Transforms)".to_string(),
             Relation::Equivalent => "≡ (Equivalent)".to_string(),
             Relation::IsA => "∈ (IsA)".to_string(),
             Relation::Evolved_Vector_Link => "⚡ (Synapse)".to_string(),
+            Relation::TemporalBefore => "⏳ (Before)".to_string(),
+            Relation::TemporalAfter => "⌛ (After)".to_string(),
+            Relation::Mapped_Via => "🌀 (Functor Map)".to_string(),
             Relation::Custom(s) => format!("~ ({})", s),
         }
     }

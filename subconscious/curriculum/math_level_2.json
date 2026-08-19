@@ -1,0 +1,32 @@
+[
+    {
+        "level": 2,
+        "name": "Topology",
+        "qid": "Q12483",
+        "description": "Branch of mathematics concerned with the properties of a geometric object that are preserved under continuous deformations."
+    },
+    {
+        "level": 2,
+        "name": "Differential Geometry",
+        "qid": "Q188444",
+        "description": "Mathematical discipline that uses the techniques of differential calculus, integral calculus, linear algebra and multilinear algebra to study problems in geometry."
+    },
+    {
+        "level": 2,
+        "name": "Category Theory",
+        "qid": "Q192324",
+        "description": "General theory of mathematical structures and their relations."
+    },
+    {
+        "level": 2,
+        "name": "Number Theory",
+        "qid": "Q7150",
+        "description": "Branch of pure mathematics devoted primarily to the study of the integers."
+    },
+    {
+        "level": 2,
+        "name": "Algebraic Geometry",
+        "qid": "Q8087",
+        "description": "Branch of mathematics, classically studying zeros of multivariate polynomials."
+    }
+]

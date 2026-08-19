@@ -1,0 +1,32 @@
+[
+    {
+        "level": 3,
+        "name": "Systems Biology",
+        "qid": "Q171458",
+        "description": "Computational and mathematical modeling of complex biological systems."
+    },
+    {
+        "level": 3,
+        "name": "Neuroscience",
+        "qid": "Q201242",
+        "description": "Scientific study of the nervous system."
+    },
+    {
+        "level": 3,
+        "name": "Biochemistry",
+        "qid": "Q8096",
+        "description": "Study of chemical processes within and relating to living organisms."
+    },
+    {
+        "level": 3,
+        "name": "Immunology",
+        "qid": "Q28564",
+        "description": "Branch of biomedical science that covers the study of immune systems."
+    },
+    {
+        "level": 3,
+        "name": "Bioinformatics",
+        "qid": "Q20141",
+        "description": "Interdisciplinary field that develops methods and software tools for understanding biological data."
+    }
+]

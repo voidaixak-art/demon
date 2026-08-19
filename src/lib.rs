@@ -6,3 +6,4 @@ pub mod relations;
 pub mod server;
 pub mod storage;
 pub mod vector_engine;
+pub mod clustering;

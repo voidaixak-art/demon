@@ -1,0 +1,32 @@
+[
+    {
+        "level": 8,
+        "name": "Linear Algebra",
+        "qid": "Q82571",
+        "description": "The branch of mathematics concerning linear equations and linear maps."
+    },
+    {
+        "level": 9,
+        "name": "Differential Equations",
+        "qid": "Q11214",
+        "description": "A mathematical equation that relates some function with its derivatives."
+    },
+    {
+        "level": 10,
+        "name": "Probability Theory",
+        "qid": "Q12040",
+        "description": "The branch of mathematics concerned with probability."
+    },
+    {
+        "level": 11,
+        "name": "Thermodynamics",
+        "qid": "Q11473",
+        "description": "The branch of physics that deals with heat, work, and temperature."
+    },
+    {
+        "level": 12,
+        "name": "Electromagnetism",
+        "qid": "Q11406",
+        "description": "The branch of physics involving the study of the electromagnetic force."
+    }
+]

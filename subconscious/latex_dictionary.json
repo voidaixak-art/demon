@@ -1,0 +1,46 @@
+[
+    {
+        "concept": "integral",
+        "symbol": "\\int"
+    },
+    {
+        "concept": "summation",
+        "symbol": "\\sum"
+    },
+    {
+        "concept": "pi",
+        "symbol": "\\pi"
+    },
+    {
+        "concept": "infinity",
+        "symbol": "\\infty"
+    },
+    {
+        "concept": "derivative",
+        "symbol": "\\frac{d}{dx}"
+    },
+    {
+        "concept": "partial derivative",
+        "symbol": "\\partial"
+    },
+    {
+        "concept": "empty set",
+        "symbol": "\\emptyset"
+    },
+    {
+        "concept": "element of",
+        "symbol": "\\in"
+    },
+    {
+        "concept": "subset of",
+        "symbol": "\\subset"
+    },
+    {
+        "concept": "union",
+        "symbol": "\\cup"
+    },
+    {
+        "concept": "intersection",
+        "symbol": "\\cap"
+    }
+]

@@ -1,0 +1,32 @@
+[
+    {
+        "level": 2,
+        "name": "Microbiology",
+        "qid": "Q7100",
+        "description": "Study of microorganisms."
+    },
+    {
+        "level": 2,
+        "name": "Evolutionary Biology",
+        "qid": "Q100693",
+        "description": "Subfield of biology that studies the evolutionary processes."
+    },
+    {
+        "level": 2,
+        "name": "Ecology",
+        "qid": "Q7162",
+        "description": "Scientific study of the relationships between living organisms."
+    },
+    {
+        "level": 2,
+        "name": "Physiology",
+        "qid": "Q8777",
+        "description": "Scientific study of functions and mechanisms in a living system."
+    },
+    {
+        "level": 2,
+        "name": "Molecular Biology",
+        "qid": "Q8091",
+        "description": "Branch of biology that concerns the molecular basis of biological activity."
+    }
+]

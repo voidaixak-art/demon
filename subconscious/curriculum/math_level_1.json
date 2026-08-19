@@ -1,0 +1,52 @@
+[
+    {
+        "source": "Zero",
+        "relation": "Is_Identity_Of",
+        "target": "Addition"
+    },
+    {
+        "source": "One",
+        "relation": "Is_Identity_Of",
+        "target": "Multiplication"
+    },
+    {
+        "source": "Addition",
+        "relation": "Is_Inverse_Of",
+        "target": "Subtraction"
+    },
+    {
+        "source": "Multiplication",
+        "relation": "Is_Inverse_Of",
+        "target": "Division"
+    },
+    {
+        "source": "Addition",
+        "relation": "Operates_On",
+        "target": "Number"
+    },
+    {
+        "source": "Number",
+        "relation": "Element_Of",
+        "target": "Set"
+    },
+    {
+        "source": "Empty_Set",
+        "relation": "Subset_Of",
+        "target": "Set"
+    },
+    {
+        "source": "Number",
+        "relation": "Conceptually_Equivalent_To",
+        "target": "Quantity"
+    },
+    {
+        "source": "Axiom",
+        "relation": "Implies",
+        "target": "Truth"
+    },
+    {
+        "source": "Proof",
+        "relation": "Derives_From",
+        "target": "Axiom"
+    }
+]

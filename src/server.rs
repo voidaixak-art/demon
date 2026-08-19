@@ -95,6 +95,13 @@ pub fn create_router(engine: AxiomEngine) -> Router {
         .route("/api/logs", get(get_logs_handler).post(add_log_handler))
         .route("/api/context", post(get_context_handler))
         .route("/api/ask", get(ask_handler))
+        .route("/api/centrality", get(get_centrality_handler))
+        .route("/api/domains", get(get_domains_handler))
+        .route("/api/attention", post(get_attention_handler))
+        .route("/api/surprise", post(get_surprise_handler))
+        .route("/api/intuition", post(get_intuition_handler))
+        .route("/api/momentum", get(get_momentum_handler))
+        .route("/api/fusion", post(post_fusion_handler))
         .fallback_service(ServeDir::new("dashboard"))
         .layer(cors)
         .with_state(state)
@@ -247,6 +254,145 @@ async fn get_context_handler(
     Json(serde_json::json!({ "context": context }))
 }
 
+async fn get_centrality_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let top_nodes = state.engine.get_degree_centrality();
+    let graph = state.engine.graph.read().unwrap();
+    let mut results = Vec::new();
+
+    // Return the top 10 core concepts (Wisdom)
+    for (id, score) in top_nodes.into_iter().take(10) {
+        if let Some(node) = graph.get(&id) {
+            results.push(serde_json::json!({
+                "concept": node.concept,
+                "centrality_score": score
+            }));
+        }
+    }
+
+    Json(serde_json::json!({ "core_beliefs": results }))
+}
+
+async fn get_domains_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let domains = crate::clustering::Clustering::run_lpa(&state.engine, 10);
+    let graph = state.engine.graph.read().unwrap();
+    
+    // Group concepts by domain ID
+    let mut clustered: std::collections::HashMap<u64, Vec<String>> = std::collections::HashMap::new();
+    for (node_id, domain_id) in domains {
+        if let Some(node) = graph.get(&node_id) {
+            clustered.entry(domain_id).or_default().push(node.concept.clone());
+        }
+    }
+
+    // Convert domain_id to actual concept names for readability
+    let mut named_clusters = std::collections::HashMap::new();
+    for (domain_id, concepts) in clustered {
+        let domain_name = graph.get(&domain_id).map(|n| n.concept.clone()).unwrap_or_else(|| format!("Domain {}", domain_id));
+        named_clusters.insert(domain_name, concepts);
+    }
+
+    Json(serde_json::json!({ "domains": named_clusters }))
+}
+
+#[derive(Deserialize)]
+pub struct AttentionRequest {
+    pub concept: String,
+}
+
+async fn get_attention_handler(
+    State(state): State<AppState>,
+    Json(req): Json<AttentionRequest>,
+) -> Json<serde_json::Value> {
+    let memory = Reasoner::compute_attention(&state.engine, &req.concept);
+    let formatted: Vec<_> = memory.into_iter().map(|(c, s)| {
+        serde_json::json!({ "concept": c, "attention_score": s })
+    }).collect();
+
+    Json(serde_json::json!({ "working_memory": formatted }))
+}
+
+#[derive(Deserialize)]
+pub struct SurpriseRequest {
+    pub concept: String,
+}
+
+async fn get_surprise_handler(
+    State(state): State<AppState>,
+    Json(req): Json<SurpriseRequest>,
+) -> Json<serde_json::Value> {
+    let score = state.engine.calculate_surprise(&req.concept);
+    Json(serde_json::json!({ "concept": req.concept, "surprise_score": (score * 1000.0).round() / 1000.0 }))
+}
+
+#[derive(Deserialize)]
+pub struct IntuitionRequest {
+    pub concepts: Vec<String>,
+}
+
+async fn get_intuition_handler(
+    State(state): State<AppState>,
+    Json(req): Json<IntuitionRequest>,
+) -> Json<serde_json::Value> {
+    let intuition = Reasoner::run_intuition(&state.engine, &req.concepts);
+    Json(serde_json::json!({ "intuition": intuition }))
+}
+
+// Module 1 (Phase 9): Calculus - Get Momentum (Trends)
+async fn get_momentum_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let graph = state.engine.graph.read().unwrap();
+    let mut trends: Vec<(String, f64)> = Vec::new();
+    
+    for (id, node) in graph.iter() {
+        if let Some(momentum) = state.engine.calculate_momentum(*id) {
+            if momentum.abs() > 0.0 { // Only return concepts with some momentum
+                trends.push((node.concept.clone(), momentum));
+            }
+        }
+    }
+    
+    // Sort by momentum (highest positive first)
+    trends.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    
+    // Take top 10 trending up, top 10 trending down
+    let trending_up: Vec<_> = trends.iter().filter(|(_, m)| *m > 0.0).take(10).collect();
+    let trending_down: Vec<_> = trends.iter().filter(|(_, m)| *m < 0.0).rev().take(10).collect();
+
+    Json(serde_json::json!({
+        "trending_up": trending_up,
+        "trending_down": trending_down
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct FusionRequest {
+    pub domain_a_id: u64,
+    pub domain_b_id: u64,
+}
+
+// Module 2 (Phase 9): Group Theory - Fuse Domains
+async fn post_fusion_handler(State(state): State<AppState>, Json(req): Json<FusionRequest>) -> Json<serde_json::Value> {
+    let result = Reasoner::fuse_domains(&state.engine, req.domain_a_id, req.domain_b_id);
+    
+    if let Some((a, b, is_iso)) = result {
+        if is_iso {
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Group Isomorphism found! Fused [{}] with [{}]", a, b)
+            }))
+        } else {
+            Json(serde_json::json!({
+                "success": true,
+                "message": format!("Functor Mapped! [{}] mapped to [{}] via Category Theory", a, b)
+            }))
+        }
+    } else {
+        Json(serde_json::json!({
+            "success": false,
+            "message": "No structural symmetry found between domains."
+        }))
+    }
+}
+
 pub async fn run_server(engine: AxiomEngine, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     // Spawn the cognitive mind loop in the background!
     let engine_clone = engine.clone();
@@ -311,6 +457,11 @@ async fn ask_handler(
         }
         if !others.is_empty() {
             parts.push(format!("I've also found abstract connections to: {}.", others.join(", ")));
+        }
+
+        // Module 4: Analogical Reasoning
+        if let Some((analog, conf)) = Reasoner::find_analogy(&state.engine, &node.concept) {
+            parts.push(format!("(💡 Structural Analogy: Mathematically, '{}' behaves very similarly to '{}' in my neural graph. Structural similarity: {:.0}%)", node.concept, analog, conf * 100.0));
         }
 
         Json(serde_json::json!({

@@ -5,12 +5,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CausalLink {
     pub target_id: u64,
     pub relation: Relation,
     pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CognitiveFailure {
+    pub failure_type: String,
+    pub source_node: String,
+    pub target_node: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +30,7 @@ pub struct Node {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vector: Option<Vec<f64>>,
     pub activation_count: u64,
+    pub activation_timestamps: Vec<u64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -31,6 +40,8 @@ pub struct AxiomEngine {
     pub graph: Arc<RwLock<HashMap<u64, Node>>>,
     pub concept_index: Arc<RwLock<HashMap<String, u64>>>,
     pub storage: Arc<RwLock<StorageManager>>,
+    pub frustration_score: Arc<RwLock<f64>>,
+    pub cognitive_failures: Arc<RwLock<Vec<CognitiveFailure>>>,
 }
 
 impl AxiomEngine {
@@ -40,10 +51,25 @@ impl AxiomEngine {
             graph: Arc::new(RwLock::new(HashMap::new())),
             concept_index: Arc::new(RwLock::new(HashMap::new())),
             storage: storage_arc,
+            frustration_score: Arc::new(RwLock::new(0.0)),
+            cognitive_failures: Arc::new(RwLock::new(Vec::new())),
         };
 
         engine.reload_from_storage()?;
         Ok(engine)
+    }
+
+    // Phase 10: Meta-Cognition (Frustration Tracker)
+    pub fn record_cognitive_failure(&self, failure_type: &str, source: &str, target: &str) {
+        let mut frustration = self.frustration_score.write().unwrap();
+        *frustration += 1.0;
+
+        let mut failures = self.cognitive_failures.write().unwrap();
+        failures.push(CognitiveFailure {
+            failure_type: failure_type.to_string(),
+            source_node: source.to_string(),
+            target_node: target.to_string(),
+        });
     }
 
     pub fn reload_from_storage(&self) -> io::Result<()> {
@@ -65,6 +91,7 @@ impl AxiomEngine {
                     links: Vec::new(),
                     vector: n.vector,
                     activation_count: n.activation_count,
+                    activation_timestamps: vec![SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()],
                     created_at: n.created_at,
                     updated_at: n.updated_at,
                 },
@@ -124,6 +151,7 @@ impl AxiomEngine {
             let mut graph = self.graph.write().unwrap();
             if let Some(node) = graph.get_mut(&existing_id) {
                 node.activation_count += 1;
+                node.activation_timestamps.push(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
                 if vector.is_some() {
                     node.vector = vector.clone();
                 }
@@ -170,6 +198,7 @@ impl AxiomEngine {
             links: Vec::new(),
             vector,
             activation_count: 1,
+            activation_timestamps: vec![SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()],
             created_at: now.clone(),
             updated_at: now,
         };
@@ -198,21 +227,37 @@ impl AxiomEngine {
             return Ok(false);
         }
 
-        // Check if link already exists
+        let source_activation = graph.get(&source_id).unwrap().activation_count;
+        let target_activation = graph.get(&target_id).unwrap().activation_count;
+        let total_activations: u64 = graph.values().map(|n| n.activation_count).sum();
+
+        // Module 1 (Phase 8): Bayesian Inference
+        let mut bayesian_confidence = confidence;
+        if total_activations > 10 { // Only apply Bayes after a small burn-in period
+            let source_prior = (source_activation as f64 + 1.0) / (total_activations as f64);
+            let target_prior = (target_activation as f64 + 1.0) / (total_activations as f64);
+            
+            // P(A|B) estimation
+            let bayes_factor = target_prior / source_prior;
+            bayesian_confidence = (confidence * bayes_factor).clamp(0.1, 0.99);
+        }
+
+        // Now get the mutable reference
         let source_node = graph.get_mut(&source_id).unwrap();
+
         if let Some(existing) = source_node.links.iter_mut().find(|l| l.target_id == target_id && l.relation == relation) {
-            existing.confidence = confidence;
+            existing.confidence = bayesian_confidence;
         } else {
             source_node.links.push(CausalLink {
                 target_id,
                 relation: relation.clone(),
-                confidence,
+                confidence: bayesian_confidence,
             });
         }
         drop(graph);
 
         let storage = self.storage.read().unwrap();
-        storage.insert_link(source_id, target_id, &relation, confidence)?;
+        storage.insert_link(source_id, target_id, &relation, bayesian_confidence)?;
 
         Ok(true)
     }
@@ -301,5 +346,53 @@ impl AxiomEngine {
             "density": (density * 100.0).round() / 100.0,
             "self_connections": graph.get(&0).map_or(0, |n| n.links.len())
         })
+    }
+
+    // Module 3: Shannon Entropy (Curiosity & Surprise)
+    pub fn calculate_surprise(&self, concept: &str) -> f64 {
+        let graph = self.graph.read().unwrap();
+        let node = match self.get_node_by_concept(concept) {
+            Some(n) => n,
+            None => return 100.0, // Maximum surprise if completely unknown
+        };
+
+        let total_activations: u64 = graph.values().map(|n| n.activation_count).sum();
+        if total_activations == 0 {
+            return 0.0;
+        }
+
+        let p = node.activation_count as f64 / total_activations as f64;
+        
+        // Surprise (Self-Information) = -log2(p)
+        if p > 0.0 {
+            -p.log2()
+        } else {
+            100.0
+        }
+    }
+
+    // Phase 9: Calculus (Trending / Momentum)
+    // Calculates derivative dc/dt using recent vs past activations
+    pub fn calculate_momentum(&self, id: u64) -> Option<f64> {
+        let graph = self.graph.read().unwrap();
+        let node = graph.get(&id)?;
+
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let five_mins: u64 = 5 * 60;
+        let ten_mins: u64 = 10 * 60;
+
+        // Recent window: Now to -5 mins
+        let recent_count = node.activation_timestamps.iter()
+            .filter(|&&t| t > now.saturating_sub(five_mins))
+            .count() as f64;
+
+        // Past window: -5 mins to -10 mins
+        let past_count = node.activation_timestamps.iter()
+            .filter(|&&t| t <= now.saturating_sub(five_mins) && t > now.saturating_sub(ten_mins))
+            .count() as f64;
+
+        // Derivative Approximation (dc/dt)
+        let momentum = recent_count - past_count;
+        Some(momentum)
     }
 }

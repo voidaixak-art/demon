@@ -212,12 +212,33 @@ def offline_chat(req: ChatRequest):
     
     # 2. Intent Detection
     intent = "DESCRIBE"
-    for token in doc:
-        if token.tag_ in ["WP", "WRB", "WDT"]: # WH-words
-            if token.lemma_.lower() == "who": intent = "PERSON"
-            elif token.lemma_.lower() == "where": intent = "LOCATION"
-            elif token.lemma_.lower() == "why": intent = "REASON"
-            elif token.lemma_.lower() == "what": intent = "DEFINITION"
+    query_lower = query.lower()
+    if "wisdom" in query_lower or "core belief" in query_lower or "central" in query_lower:
+        intent = "WISDOM"
+    else:
+        for token in doc:
+            if token.tag_ in ["WP", "WRB", "WDT"]: # WH-words
+                if token.lemma_.lower() == "who": intent = "PERSON"
+                elif token.lemma_.lower() == "where": intent = "LOCATION"
+                elif token.lemma_.lower() == "why": intent = "REASON"
+                elif token.lemma_.lower() == "what": intent = "DEFINITION"
+                
+    if intent == "WISDOM":
+        try:
+            url = "http://localhost:8080/api/centrality"
+            req_obj = urllib.request.Request(url)
+            with urllib.request.urlopen(req_obj) as response:
+                data = json.loads(response.read().decode())
+                beliefs = data.get("core_beliefs", [])
+                if not beliefs:
+                    return {"answer": "My graph is currently empty. I have not developed any core beliefs yet."}
+                
+                ans = "🧠 **VYOUM's Core Beliefs (Wisdom/Centrality)** 🧠\nBased on mathematical graph density, these are my fundamental anchors of thought:\n\n"
+                for i, b in enumerate(beliefs):
+                    ans += f"{i+1}. **{b['concept']}** (Centrality Score: {b['centrality_score']})\n"
+                return {"answer": ans}
+        except Exception as e:
+            return {"answer": f"[SYSTEM_ERR] Neural link severed while fetching wisdom: {str(e)}"}
             
     # Extract concepts
     concepts = [token.lemma_.title() for token in doc if token.pos_ in ["NOUN", "PROPN"]]
@@ -228,8 +249,30 @@ def offline_chat(req: ChatRequest):
     main_concept = concepts[0]
     last_subject = main_concept # Save to short-term memory
     
-    # 3. Graph Retrieval
+    # 3. Graph Retrieval / Deduction
     try:
+        if len(concepts) >= 2:
+            # We have multiple concepts! Fire the Math Engine (Dijkstra)
+            start_concept = concepts[0]
+            goal_concept = concepts[-1]
+            
+            url = "http://localhost:8080/api/deduce"
+            payload = json.dumps({"start": start_concept, "goal": goal_concept}).encode("utf-8")
+            req_obj = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+            
+            with urllib.request.urlopen(req_obj) as response:
+                data = json.loads(response.read().decode())
+                proven = data.get("proven", False)
+                explanation = data.get("explanation", "")
+                
+                if proven:
+                    final_answer = f"🧠 **VYOUM Mathematical Deduction Complete** 🧠\n\n{explanation}"
+                else:
+                    final_answer = f"I attempted to mathematically trace a logical path from '{start_concept}' to '{goal_concept}', but the graph currently lacks a continuous path of confidence between them."
+                    
+                return {"answer": final_answer}
+                
+        # Fallback to single concept query
         url = f"http://localhost:8080/api/ask?q={urllib.parse.quote(main_concept)}"
         req_obj = urllib.request.Request(url)
         with urllib.request.urlopen(req_obj) as response:
