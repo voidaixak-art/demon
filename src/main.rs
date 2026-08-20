@@ -40,6 +40,8 @@ enum Commands {
         #[arg(short, long)]
         goal: String,
     },
+    /// Export the entire brain graph to static JSON files for the 3D Dashboard
+    ExportGraph,
 }
 
 #[tokio::main]
@@ -66,6 +68,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Deduce { start, goal } => {
             let proof = Reasoner::prove_deduction(&engine, &start, &goal);
             println!("{}", proof.explanation);
+        }
+        Commands::ExportGraph => {
+            println!("🚀 Exporting entire Brain Graph for 3D Dashboard...");
+            let graph = engine.graph.read().unwrap();
+            
+            std::fs::create_dir_all("dashboard").unwrap();
+            
+            let nodes_file = std::fs::File::create("dashboard/nodes.json").unwrap();
+            serde_json::to_writer_pretty(nodes_file, &*graph).unwrap();
+            
+            let mut all_links = Vec::new();
+            for node in graph.values() {
+                all_links.extend(node.links.clone());
+            }
+            
+            let links_file = std::fs::File::create("dashboard/links.json").unwrap();
+            serde_json::to_writer_pretty(links_file, &all_links).unwrap();
+            
+            println!("✅ Successfully exported {} nodes and {} synapses!", graph.len(), all_links.len());
         }
     }
 

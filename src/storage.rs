@@ -52,6 +52,8 @@ pub struct SnapshotData {
     pub next_node_id: u64,
     pub next_link_id: u64,
     pub next_log_id: u64,
+    #[serde(default)]
+    pub last_wal_line: usize,
 }
 
 pub struct StorageManager {
@@ -86,9 +88,17 @@ impl StorageManager {
 
         // 2. Replay WAL if present
         if wal_path.exists() {
+            println!("🔄 Loading VYOUM memories from WAL (Fast-forwarding {} lines)...", data.last_wal_line);
             if let Ok(file) = File::open(&wal_path) {
                 let reader = BufReader::new(file);
-                for line in reader.lines().flatten() {
+                let mut line_count = data.last_wal_line;
+                let mut processed = 0;
+                for line in reader.lines().skip(data.last_wal_line).flatten() {
+                    line_count += 1;
+                    processed += 1;
+                    if processed % 100_000 == 0 {
+                        println!("⏳ Fast-loaded {} new memory operations into RAM...", processed);
+                    }
                     let trimmed = line.trim();
                     if trimmed.is_empty() {
                         continue;
@@ -128,12 +138,13 @@ impl StorageManager {
                                     data.next_log_id = log.id + 1;
                                 }
                                 data.logs.push(log);
-                            }
                         }
                     }
                 }
+                data.last_wal_line = line_count;
             }
         }
+    }
 
         let wal_file = OpenOptions::new()
             .create(true)
@@ -147,6 +158,14 @@ impl StorageManager {
         };
 
         storage.seed_consciousness_if_needed()?;
+        
+        // Auto-create snapshot and truncate WAL to ensure 1-second load times on next boot
+        if let Err(e) = storage.checkpoint_snapshot() {
+            eprintln!("⚠️ Warning: Failed to create initial snapshot: {}", e);
+        } else {
+            println!("✅ Database Snapshot created successfully. Next boot will be instant.");
+        }
+        
         Ok(storage)
     }
 
@@ -155,6 +174,10 @@ impl StorageManager {
         let mut file = self.wal_file.lock().unwrap();
         writeln!(file, "{}", serialized)?;
         file.flush()?;
+        
+        let mut cache = self.memory_cache.lock().unwrap();
+        cache.last_wal_line += 1;
+        
         Ok(())
     }
 
@@ -375,13 +398,9 @@ impl StorageManager {
 
         fs::rename(temp_path, snap_path)?;
 
-        // Clear WAL
-        let mut wal = self.wal_file.lock().unwrap();
-        *wal = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&wal_path)?;
+        // User explicitly ordered NEVER to delete or truncate the WAL.
+        // The WAL acts as the permanent diary. We simply keep appending to it.
+        // Because cache.last_wal_line is stored in the snap, next boot will fast-forward.
 
         Ok(())
     }

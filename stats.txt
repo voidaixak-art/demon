@@ -1,0 +1,10 @@
+Total Concepts: 1903
+Total Synapses (Links): 35689
+
+--- Dimensions ---
+Pure Mathematics: 1898 concepts
+Epistemology: 1 concepts
+Consciousness: 1 concepts
+Logic: 1 concepts
+Metaphysics: 1 concepts
+Cognition: 1 concepts

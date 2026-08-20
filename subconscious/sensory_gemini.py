@@ -8,7 +8,7 @@ class GeminiPerception:
     def __init__(self, api_keys: List[str] = GEMINI_API_KEYS):
         self.api_keys = api_keys if api_keys else []
         self.current_key_idx = 0
-        self.model_name = "gemini-2.5-flash"
+        self.model_name = "gemini-3.5-flash"
 
     def _get_current_key(self) -> str:
         if not self.api_keys:

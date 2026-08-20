@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VYOUM 3D Core Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #050505;
+      font-family: 'Outfit', sans-serif;
+      color: #00ffcc;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .title-box {
+      background: rgba(0, 20, 20, 0.7);
+      border: 1px solid rgba(0, 255, 204, 0.3);
+      padding: 15px 25px;
+      border-radius: 8px;
+      backdrop-filter: blur(10px);
+    }
+    .title {
+      font-family: 'Fira Code', monospace;
+      font-size: 24px;
+      font-weight: 700;
+      margin: 0 0 5px 0;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.6);
+      margin: 0;
+    }
+    .stats-box {
+      background: rgba(0, 20, 20, 0.7);
+      border: 1px solid rgba(0, 255, 204, 0.3);
+      padding: 15px;
+      border-radius: 8px;
+      backdrop-filter: blur(10px);
+      text-align: right;
+      font-family: 'Fira Code', monospace;
+    }
+    .stat-row {
+      margin-bottom: 8px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .stat-label { color: rgba(255, 255, 255, 0.5); }
+    .stat-val { color: #00ffcc; font-weight: bold; }
+    
+    #hover-info {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.85);
+      border: 1px solid #00ffcc;
+      color: white;
+      padding: 10px 15px;
+      border-radius: 6px;
+      font-family: 'Fira Code', monospace;
+      font-size: 14px;
+      pointer-events: none;
+      display: none;
+      transform: translate(-50%, -120%);
+      z-index: 100;
+      box-shadow: 0 0 15px rgba(0, 255, 204, 0.2);
+    }
+    .hover-dim {
+      font-size: 11px;
+      color: #00ffcc;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+    }
+    .hover-concept { font-weight: bold; font-size: 16px; }
+
+    .nav-back {
+      pointer-events: auto;
+      text-decoration: none;
+      color: #00ffcc;
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+      border: 1px solid #00ffcc;
+      padding: 5px 10px;
+      border-radius: 4px;
+      background: rgba(0, 20, 20, 0.7);
+      transition: all 0.2s;
+    }
+    .nav-back:hover {
+      background: #00ffcc;
+      color: #000;
+    }
+
+    #loading-overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: #050505;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      transition: opacity 0.5s;
+    }
+    .spinner {
+      width: 50px; height: 50px;
+      border: 3px solid rgba(0,255,204,0.2);
+      border-top-color: #00ffcc;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+  </style>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div style="font-family: 'Fira Code'; font-size: 14px; color: #00ffcc;">INITIALIZING MATHEMATICAL GRAPH...</div>
+    <div id="loading-text" style="font-family: 'Fira Code'; font-size: 12px; color: #888; margin-top: 10px;">Fetching Nodes...</div>
+  </div>
+
+  <div id="canvas-container"></div>
+  
+  <div id="hover-info">
+    <div class="hover-dim" id="hover-dim">DOMAIN</div>
+    <div class="hover-concept" id="hover-concept">CONCEPT_NAME</div>
+  </div>
+
+  <div id="ui-layer">
+    <div class="header">
+      <div class="title-box">
+        <h1 class="title">VYOUM CORE</h1>
+        <p class="subtitle">Pure Math 3D Representation (Fibonacci Sphere)</p>
+        <a href="index.html" class="nav-back" style="display:inline-block; margin-top:10px;">◀ RETURN TO TERMINAL</a>
+      </div>
+      <div class="stats-box">
+        <div class="stat-row">
+          <span class="stat-label">NODES</span>
+          <span class="stat-val" id="stat-nodes">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">SYNAPSES</span>
+          <span class="stat-val" id="stat-links">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">LAYOUT</span>
+          <span class="stat-val">FIBONACCI LATTICE</span>
+        </div>
+      </div>
+    </div>
+    
+    <div style="font-family: 'Fira Code'; font-size: 11px; color: rgba(255,255,255,0.3); text-align: right;">
+      LMB: Rotate | RMB: Pan | SCROLL: Zoom
+    </div>
+  </div>
+
+  <script src="3d.js"></script>
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VYOUM Axiom Engine</title>
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --surface-color: rgba(31, 40, 51, 0.6);
+            --border-color: rgba(102, 252, 241, 0.2);
+            --primary-color: #66fcf1;
+            --secondary-color: #45a29e;
+            --text-primary: #c5c6c7;
+            --text-heading: #ffffff;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(102, 252, 241, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 85% 30%, rgba(69, 162, 158, 0.05) 0%, transparent 50%);
+        }
+
+        header {
+            padding: 1.5rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(11, 12, 16, 0.8);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+
+        header h1 {
+            color: var(--primary-color);
+            font-weight: 600;
+            letter-spacing: 2px;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            font-size: 0.8rem;
+            color: var(--secondary-color);
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+
+        #chat-container {
+            flex-grow: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 1.2rem;
+            border-radius: 12px;
+            line-height: 1.6;
+            animation: fadeIn 0.4s ease-out forwards;
+            backdrop-filter: blur(10px);
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: rgba(69, 162, 158, 0.15);
+            border: 1px solid rgba(69, 162, 158, 0.3);
+            color: var(--text-heading);
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 2px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            position: relative;
+            padding-top: 2rem; /* space for copy button */
+        }
+
+        /* Markdown Styles inside bot message */
+        .message.bot h1, .message.bot h2, .message.bot h3 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+            margin-top: 1.5rem;
+        }
+        .message.bot p { margin-bottom: 1rem; }
+        .message.bot p:last-child { margin-bottom: 0; }
+        .message.bot ul, .message.bot ol { margin-left: 2rem; margin-bottom: 1rem; }
+        .message.bot li { margin-bottom: 0.5rem; }
+        .message.bot code {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(0,0,0,0.5);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: var(--primary-color);
+            font-size: 0.9em;
+        }
+        .message.bot pre {
+            background: rgba(0,0,0,0.6);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 1rem;
+        }
+        .message.bot pre code { background: none; padding: 0; color: #a8b2d1; }
+        .message.bot strong { color: var(--text-heading); }
+
+        #input-area {
+            padding: 1.5rem 2rem;
+            background: rgba(11, 12, 16, 0.9);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 1rem;
+            backdrop-filter: blur(10px);
+        }
+
+        input[type="text"] {
+            flex-grow: 1;
+            background: rgba(31, 40, 51, 0.8);
+            border: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            border-radius: 30px;
+            color: var(--text-heading);
+            font-family: 'Inter', sans-serif;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary-color);
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.5), 0 0 15px rgba(102, 252, 241, 0.2);
+        }
+
+        button {
+            background: var(--primary-color);
+            color: var(--bg-color);
+            border: none;
+            padding: 0 2rem;
+            border-radius: 30px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: #45a29e;
+            box-shadow: 0 0 20px rgba(102, 252, 241, 0.4);
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background: #2b4f4d;
+            color: rgba(255,255,255,0.3);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* Copy Button */
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(11, 12, 16, 0.8);
+            border: 1px solid var(--border-color);
+            color: var(--primary-color);
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: none;
+            letter-spacing: normal;
+            font-weight: 400;
+            box-shadow: none;
+        }
+        
+        .copy-btn:hover {
+            background: var(--primary-color);
+            color: var(--bg-color);
+            transform: none;
+            box-shadow: 0 0 10px rgba(102, 252, 241, 0.3);
+        }
+
+        /* Loading Animation */
+        .typing-indicator {
+            display: none;
+            align-self: flex-start;
+            background: var(--surface-color);
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            border-bottom-left-radius: 2px;
+        }
+        
+        .typing-indicator.active { display: flex; gap: 5px; }
+        
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: var(--primary-color);
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-color); }
+        ::-webkit-scrollbar-thumb { background: var(--secondary-color); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary-color); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>VYOUM Axiom Engine</h1>
+        <div class="subtitle">The Living Cognitive Mind</div>
+    </header>
+
+    <div id="chat-container">
+        <div class="message bot">
+            <p>Greetings. I am the Axiom Engine 2.0. My cognitive graph is online and traversing logic pathways. How may I assist you?</p>
+        </div>
+        
+        <div class="typing-indicator" id="typing-indicator">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+        </div>
+    </div>
+
+    <div id="input-area">
+        <input type="text" id="user-input" placeholder="Enter a mathematical query, concept, or theorem..." autocomplete="off">
+        <button id="send-btn">Transmit</button>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        // Configure marked to sanitize HTML
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
+
+        function appendMessage(sender, text) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}`;
+            
+            if (sender === 'bot') {
+                msgDiv.innerHTML = marked.parse(text);
+                
+                // Add Copy Button
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.textContent = 'Copy';
+                copyBtn.onclick = () => {
+                    navigator.clipboard.writeText(text);
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+                };
+                msgDiv.appendChild(copyBtn);
+            } else {
+                msgDiv.textContent = text;
+            }
+            
+            // Insert before typing indicator
+            chatContainer.insertBefore(msgDiv, typingIndicator);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            // UI Updates
+            appendMessage('user', text);
+            userInput.value = '';
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            typingIndicator.classList.add('active');
+            scrollToBottom();
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
+                });
+                
+                const data = await response.json();
+                typingIndicator.classList.remove('active');
+                
+                if (response.ok) {
+                    appendMessage('bot', data.response);
+                } else {
+                    appendMessage('bot', `**Error:** ${data.error || 'Failed to connect to Axiom Engine.'}`);
+                }
+            } catch (err) {
+                typingIndicator.classList.remove('active');
+                appendMessage('bot', `**Connection Error:** Could not reach the server.`);
+            } finally {
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+        
+        // Focus input on load
+        window.onload = () => userInput.focus();
+    </script>
+</body>
+</html>

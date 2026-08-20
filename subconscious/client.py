@@ -133,7 +133,7 @@ class AxiomClient:
         except Exception:
             return False
 
-    def get_context(self, query: str, limit: int = 5) -> str:
+    def get_context(self, query: str, limit: int = 10000) -> str:
         payload = {"query": query, "limit": limit}
         try:
             r = self.session.post(f"{self.base_url}/api/context", json=payload, timeout=6)

@@ -1,0 +1,50 @@
+[
+    {
+        "level": 21,
+        "name": "Functional Analysis",
+        "qid": "Q192276",
+        "description": "The study of vector spaces endowed with a kind of limit-related structure and the linear functions defined on these spaces."
+    },
+    {
+        "level": 22,
+        "name": "Harmonic Analysis",
+        "qid": "Q1472901",
+        "description": "The branch of mathematics concerned with the representation of functions or signals as the superposition of basic waves."
+    },
+    {
+        "level": 23,
+        "name": "Besov Space",
+        "qid": "Q4896350",
+        "description": "A class of Banach spaces of generalized functions, used to measure smoothness of functions."
+    },
+    {
+        "level": 24,
+        "name": "Littlewood-Paley Theory",
+        "qid": "Q17112001",
+        "description": "A theoretical framework in Fourier analysis used to decompose functions into frequencies."
+    },
+    {
+        "level": 25,
+        "name": "Geometric Measure Theory",
+        "qid": "Q1503306",
+        "description": "The study of geometric properties of sets through measure theory, often used to analyze singularities in calculus of variations."
+    },
+    {
+        "level": 26,
+        "name": "Hausdorff Dimension",
+        "qid": "Q1906734",
+        "description": "A measure of roughness or fractal dimension, measuring the local size of a set taking into account distance between points."
+    },
+    {
+        "level": 27,
+        "name": "Bounded Mean Oscillation",
+        "qid": "Q4950007",
+        "description": "A class of functions in harmonic analysis that describes functions with bounded average variation, serving as a replacement for L infinity."
+    },
+    {
+        "level": 28,
+        "name": "Partial Differential Equation",
+        "qid": "Q177263",
+        "description": "Equations that impose relations between the various partial derivatives of a multivariable function."
+    }
+]
