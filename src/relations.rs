@@ -16,6 +16,9 @@ pub enum Relation {
     TemporalBefore,
     TemporalAfter,
     Mapped_Via,
+    Syntactic_FollowedBy,
+    Syntactic_Modifies,
+    Inhibits,
     Custom(String),
 }
 
@@ -33,6 +36,9 @@ impl Relation {
             Relation::TemporalBefore => "TemporalBefore".to_string(),
             Relation::TemporalAfter => "TemporalAfter".to_string(),
             Relation::Mapped_Via => "Mapped_Via".to_string(),
+            Relation::Syntactic_FollowedBy => "Syntactic_FollowedBy".to_string(),
+            Relation::Syntactic_Modifies => "Syntactic_Modifies".to_string(),
+            Relation::Inhibits => "Inhibits".to_string(),
             Relation::Custom(s) => s.clone(),
         }
     }
@@ -50,6 +56,9 @@ impl Relation {
             "temporalbefore" | "temporal_before" | "before" => Relation::TemporalBefore,
             "temporalafter" | "temporal_after" | "after" => Relation::TemporalAfter,
             "mapped_via" => Relation::Mapped_Via,
+            "syntactic_followedby" | "followed_by" => Relation::Syntactic_FollowedBy,
+            "syntactic_modifies" | "modifies" => Relation::Syntactic_Modifies,
+            "inhibits" => Relation::Inhibits,
             _ => Relation::Custom(s.trim().to_string()),
         }
     }
@@ -57,6 +66,9 @@ impl Relation {
     pub fn is_traversable(&self) -> bool {
         match self {
             Relation::Contradicts => false,
+            Relation::Inhibits => false,
+            Relation::Syntactic_FollowedBy => false,
+            Relation::Syntactic_Modifies => false,
             _ => true,
         }
     }
@@ -74,6 +86,9 @@ impl Relation {
             Relation::TemporalBefore => "⏳ (Before)".to_string(),
             Relation::TemporalAfter => "⌛ (After)".to_string(),
             Relation::Mapped_Via => "🌀 (Functor Map)".to_string(),
+            Relation::Syntactic_FollowedBy => "➡️ (Follows)".to_string(),
+            Relation::Syntactic_Modifies => "✨ (Modifies)".to_string(),
+            Relation::Inhibits => "⊣ (Inhibits)".to_string(),
             Relation::Custom(s) => format!("~ ({})", s),
         }
     }

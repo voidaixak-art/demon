@@ -305,6 +305,7 @@ impl Reasoner {
             if a.links.is_empty() { continue; }
             
             let link_ab = a.links.choose(&mut rng).unwrap();
+            if !link_ab.relation.is_traversable() { continue; }
             
             let b_node = {
                 let graph = engine.graph.read().unwrap();
@@ -315,6 +316,8 @@ impl Reasoner {
                 if b.links.is_empty() { continue; }
                 
                 let link_bc = b.links.choose(&mut rng).unwrap();
+                if !link_bc.relation.is_traversable() { continue; }
+
                 let c_id = link_bc.target_id;
                 
                 // Don't link to self
@@ -324,14 +327,30 @@ impl Reasoner {
                 let exists = a.links.iter().any(|l| l.target_id == c_id);
                 
                 if !exists {
-                    let inferred_conf = (link_ab.confidence * link_bc.confidence * 0.9 * 100.0).round() / 100.0;
-                    if inferred_conf >= 0.5 { // Only solidify somewhat strong thoughts
-                        if let Ok(true) = engine.add_link(a.id, c_id, Relation::Implies, inferred_conf) {
-                            let c_concept = {
-                                let graph = engine.graph.read().unwrap();
-                                graph.get(&c_id).map(|n| n.concept.clone()).unwrap_or_default()
-                            };
-                            successful.push((a.concept.clone(), c_concept, inferred_conf));
+                    let mut inferred_conf = (link_ab.confidence * link_bc.confidence * 0.9 * 100.0).round() / 100.0;
+                    
+                    // === Phase 3.5: FCA Lattice Gate ===
+                    // A and C must share some attribute/meaning overlap.
+                    // If they are completely orthogonal, do not infer a relation.
+                    let c_node = {
+                        let graph = engine.graph.read().unwrap();
+                        graph.get(&c_id).cloned()
+                    };
+                    
+                    if let Some(c) = c_node {
+                        if let (Some(vec_a), Some(vec_c)) = (&a.vector, &c.vector) {
+                            let sim = crate::vector_engine::VectorEngine::cosine_similarity(vec_a, vec_c);
+                            if sim < 0.1 {
+                                continue; // Too dissimilar, reject the dream
+                            }
+                            // Boost confidence based on similarity
+                            inferred_conf = (inferred_conf + sim * 0.2).min(0.99);
+                        }
+                        
+                        if inferred_conf >= 0.5 { // Only solidify somewhat strong thoughts
+                            if let Ok(true) = engine.add_link(a.id, c_id, Relation::Implies, inferred_conf) {
+                                successful.push((a.concept.clone(), c.concept.clone(), inferred_conf));
+                            }
                         }
                     }
                 }
@@ -781,5 +800,371 @@ impl Reasoner {
         }
         
         Ok(invented_laws)
+    }
+
+    /// Spreading Activation (Heat Diffusion on Graph) — The "Mouth" Mathematics
+    /// 
+    /// Models how the human brain serializes parallel neural activation into
+    /// sequential speech output (Broca's Area linearization).
+    ///
+    /// Algorithm: ∂u/∂t = -L·u (Heat Equation on Graph)
+    /// - Seed nodes are "heated" (activation = 1.0)
+    /// - Heat spreads through synapses weighted by confidence
+    /// - Decay ensures distant concepts get less activation
+    /// - Output is read in activation order (highest first) = natural serial chain
+    /// - No artificial limits — energy decay is the natural stop condition
+    pub fn trace_thought_path(
+        engine: &AxiomEngine,
+        seed_concepts: &[String],
+    ) -> String {
+        let graph = engine.graph.read().unwrap();
+        
+        if graph.is_empty() {
+            return "My neural graph is currently empty. I have no thoughts to express.".to_string();
+        }
+
+        // --- Phase 1: Find Seed Nodes ---
+        let mut activation: HashMap<u64, f64> = HashMap::new();
+        let mut activated_via: HashMap<u64, (u64, Relation, f64)> = HashMap::new(); // child -> (parent, relation, confidence)
+        let mut seeds_found = Vec::new();
+
+        for concept in seed_concepts {
+            let clean = concept.to_lowercase();
+            let clean = clean.trim();
+            
+            // Try exact match first, then substring match
+            let mut found_id = None;
+            for (&id, node) in graph.iter() {
+                if node.concept.to_lowercase().trim() == clean {
+                    found_id = Some(id);
+                    break;
+                }
+            }
+            
+            // Fuzzy substring fallback
+            if found_id.is_none() {
+                for (&id, node) in graph.iter() {
+                    if node.concept.to_lowercase().contains(clean) || clean.contains(&node.concept.to_lowercase()) {
+                        found_id = Some(id);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(id) = found_id {
+                activation.insert(id, 1.0);
+                seeds_found.push(id);
+            }
+        }
+
+        if seeds_found.is_empty() {
+            return format!(
+                "I searched my neural graph but could not find any concept matching: [{}]. This is a blind spot in my knowledge.",
+                seed_concepts.join(", ")
+            );
+        }
+
+        // --- Phase 2: Heat Diffusion (Spreading Activation) ---
+        // NOW WITH: Sheaf Context, Hebbian Learning, Lateral Inhibition, Winner-Take-All
+        let damping: f64 = 0.7;    // How much energy passes through each synapse
+        let decay: f64 = 0.5;      // How much energy the sender retains after spreading
+        let iterations = 8;         // Diffusion depth (how many hops)
+        let min_threshold = 0.01;   // Below this = not activated = natural stop
+        let top_k = 30;             // Winner-Take-All: only top-K survive per iteration
+
+        // Determine seed dimensions for Sheaf contextual gating
+        let seed_dimensions: HashSet<String> = seeds_found.iter()
+            .filter_map(|id| graph.get(id).map(|n| n.dimension.clone()))
+            .collect();
+
+        // Track links used for Hebbian reinforcement
+        let mut hebbian_links: Vec<(u64, u64)> = Vec::new();
+
+        for iter in 0..iterations {
+            let mut new_activation: HashMap<u64, f64> = HashMap::new();
+
+            for (&node_id, &current_energy) in activation.iter() {
+                if current_energy < min_threshold {
+                    continue;
+                }
+
+                if let Some(node) = graph.get(&node_id) {
+                    let num_links = node.links.len().max(1) as f64;
+                    
+                    for link in &node.links {
+                        if !link.relation.is_traversable() {
+                            // Phase 3: Inhibitory links produce NEGATIVE heat
+                            if link.relation == Relation::Custom("Inhibits".to_string()) {
+                                let inhibit_transfer = -current_energy * link.confidence * damping / num_links.sqrt();
+                                let neighbor_current = new_activation.get(&link.target_id).copied()
+                                    .unwrap_or_else(|| activation.get(&link.target_id).copied().unwrap_or(0.0));
+                                new_activation.insert(link.target_id, (neighbor_current + inhibit_transfer).max(0.0));
+                            }
+                            continue;
+                        }
+                        
+                        // === Sheaf Contextual Gating (Phase 3.3) ===
+                        // Same-dimension links get full heat transfer.
+                        // Cross-dimension links get reduced transfer (domain compatibility factor).
+                        let domain_factor = if let Some(target_node) = graph.get(&link.target_id) {
+                            if seed_dimensions.is_empty() || seed_dimensions.contains(&target_node.dimension) {
+                                1.0 // Same domain as query → full heat
+                            } else if target_node.dimension == node.dimension {
+                                0.9 // Same domain as source → mostly pass
+                            } else {
+                                0.3 // Cross-domain → heavily reduced (was 1.0 before, now 0.3)
+                            }
+                        } else {
+                            0.5
+                        };
+
+                        // Heat transfer with Sheaf context
+                        let transfer = current_energy * link.confidence * damping * domain_factor / num_links.sqrt();
+                        
+                        let neighbor_current = new_activation.get(&link.target_id).copied()
+                            .unwrap_or_else(|| activation.get(&link.target_id).copied().unwrap_or(0.0));
+                        
+                        let new_val = neighbor_current + transfer;
+                        new_activation.insert(link.target_id, new_val);
+
+                        // Track for Hebbian reinforcement
+                        if transfer > 0.05 {
+                            hebbian_links.push((node_id, link.target_id));
+                        }
+
+                        // Track the strongest activation path (for route tracing)
+                        let should_update = match activated_via.get(&link.target_id) {
+                            Some(&(_, _, old_conf)) => transfer > old_conf * damping,
+                            None => !seeds_found.contains(&link.target_id),
+                        };
+                        
+                        if should_update {
+                            activated_via.insert(link.target_id, (node_id, link.relation.clone(), link.confidence));
+                        }
+                    }
+
+                    // === Lateral Inhibition (Phase 3.3) ===
+                    // Competing nodes in the SAME dimension suppress each other slightly
+                    if iter >= 2 { // Only kick in after 2 iterations (let activation spread first)
+                        for (&other_id, &other_energy) in activation.iter() {
+                            if other_id == node_id || other_energy < min_threshold { continue; }
+                            if let Some(other_node) = graph.get(&other_id) {
+                                if other_node.dimension == node.dimension && !seeds_found.contains(&other_id) {
+                                    // Suppress the weaker competitor
+                                    if other_energy < current_energy {
+                                        let suppression = other_energy * 0.1;
+                                        let current = new_activation.get(&other_id).copied().unwrap_or(other_energy);
+                                        new_activation.insert(other_id, (current - suppression).max(0.0));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sender decays (loses energy after spreading)
+                let decayed = current_energy * decay;
+                let existing = new_activation.get(&node_id).copied().unwrap_or(0.0);
+                new_activation.insert(node_id, existing + decayed);
+            }
+
+            // === Winner-Take-All (Phase 3.4) ===
+            // After each iteration, only keep the top-K activated nodes
+            if new_activation.len() > top_k {
+                let mut sorted: Vec<(u64, f64)> = new_activation.into_iter().collect();
+                sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                
+                // Always keep seeds alive
+                new_activation = HashMap::new();
+                for (id, score) in sorted.into_iter().take(top_k) {
+                    new_activation.insert(id, score);
+                }
+                // Re-add seeds if they were cut
+                for &seed_id in &seeds_found {
+                    new_activation.entry(seed_id).or_insert(min_threshold);
+                }
+            }
+
+            activation = new_activation;
+        }
+
+        // === Hebbian Learning (Phase 3.1) ===
+        // Links that were traversed during this query get slightly stronger
+        // (Must be done outside graph read lock)
+        drop(graph);
+        for (src, tgt) in hebbian_links {
+            let mut g = engine.graph.write().unwrap();
+            if let Some(node) = g.get_mut(&src) {
+                for link in node.links.iter_mut() {
+                    if link.target_id == tgt {
+                        // Hebbian: conf_new = conf_old + α × (1 - conf_old), α = 0.005
+                        link.confidence = (link.confidence + 0.005 * (1.0 - link.confidence)).min(0.99);
+                    }
+                }
+            }
+        }
+        let graph = engine.graph.read().unwrap();
+
+        // --- Phase 3: Serial Readout (Linearization) ---
+        // Sort ALL activated nodes by score (highest first) — NO LIMIT
+        let mut sorted_nodes: Vec<(u64, f64)> = activation.into_iter()
+            .filter(|&(_, score)| score >= min_threshold)
+            .collect();
+        sorted_nodes.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Build the serial output chain
+        let mut output = String::new();
+        output.push_str(&format!("=== VYOUM TRAIN OF THOUGHT ({} concepts activated) ===\n\n", sorted_nodes.len()));
+
+        for (step, (node_id, score)) in sorted_nodes.iter().enumerate() {
+            if let Some(node) = graph.get(node_id) {
+                // Step header
+                output.push_str(&format!(
+                    "Step {}: [{}] (Dimension: {}, Activation: {:.3})\n",
+                    step + 1, node.concept, node.dimension, score
+                ));
+
+                // How did we get here? (Route trace)
+                if let Some((parent_id, ref relation, confidence)) = activated_via.get(node_id) {
+                    if let Some(parent) = graph.get(parent_id) {
+                        output.push_str(&format!(
+                            "  ← Reached via: [{}] {} [{}] (confidence: {:.2})\n",
+                            parent.concept, relation.symbol(), node.concept, confidence
+                        ));
+                    }
+                } else if seeds_found.contains(node_id) {
+                    output.push_str("  ← [SEED: Direct match to user query]\n");
+                }
+
+                // Show this node's strongest outgoing connections
+                let mut sorted_links = node.links.clone();
+                sorted_links.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+                
+                for link in sorted_links.iter().take(5) {
+                    if let Some(target) = graph.get(&link.target_id) {
+                        output.push_str(&format!(
+                            "  → {} [{}] (confidence: {:.2})\n",
+                            link.relation.symbol(), target.concept, link.confidence
+                        ));
+                    }
+                }
+                output.push('\n');
+            }
+        }
+
+        if sorted_nodes.is_empty() {
+            output.push_str("No concepts were activated strongly enough to form a coherent thought chain.\n");
+        }
+
+        output
+    }
+    // Relation-Filtered Spreading Activation
+    // Only spreads through edges of a specific relation type.
+    // None = all traversable edges (same as trace_thought_path)
+    // Some("Causes")      => answers WHY questions
+    // Some("Contradicts") => answers GALAT SABIT / disprove questions
+    // Some("Proves")      => answers PROOF questions
+    // Some("Implies")     => answers WHAT FOLLOWS questions
+    pub fn trace_thought_path_filtered(
+        engine: &AxiomEngine,
+        seed_concepts: &[String],
+        relation_filter: Option<&str>,
+    ) -> String {
+        let graph = engine.graph.read().unwrap();
+        if graph.is_empty() {
+            return "My neural graph is currently empty.".to_string();
+        }
+
+        let mut activation: HashMap<u64, f64> = HashMap::new();
+        let mut activated_via: HashMap<u64, (u64, Relation, f64)> = HashMap::new();
+        let mut seeds_found = Vec::new();
+
+        for concept in seed_concepts {
+            let clean = concept.to_lowercase();
+            let clean = clean.trim();
+            let mut found_id = None;
+            for (&id, node) in graph.iter() {
+                if node.concept.to_lowercase().trim() == clean {
+                    found_id = Some(id); break;
+                }
+            }
+            if found_id.is_none() {
+                for (&id, node) in graph.iter() {
+                    if node.concept.to_lowercase().contains(clean) || clean.contains(&node.concept.to_lowercase()) {
+                        found_id = Some(id); break;
+                    }
+                }
+            }
+            if let Some(id) = found_id {
+                activation.insert(id, 1.0);
+                seeds_found.push(id);
+            }
+        }
+
+        if seeds_found.is_empty() {
+            return format!("No concept found matching: [{}].", seed_concepts.join(", "));
+        }
+
+        let damping = 0.7f64;
+        let decay = 0.5f64;
+        let min_threshold = 0.01f64;
+
+        for _ in 0..8 {
+            let mut new_act: HashMap<u64, f64> = HashMap::new();
+            for (&nid, &energy) in activation.iter() {
+                if energy < min_threshold { continue; }
+                if let Some(node) = graph.get(&nid) {
+                    let n = node.links.len().max(1) as f64;
+                    for link in &node.links {
+                        let ok = match relation_filter {
+                            Some(f) => link.relation.as_str().to_lowercase() == f.to_lowercase(),
+                            None    => link.relation.is_traversable(),
+                        };
+                        if !ok { continue; }
+                        let e = (energy * damping * link.confidence) / n;
+                        let slot = new_act.entry(link.target_id).or_insert(0.0);
+                        if e > *slot {
+                            *slot = e;
+                            activated_via.entry(link.target_id)
+                                .or_insert((nid, link.relation.clone(), link.confidence));
+                        }
+                    }
+                    let r = energy * decay;
+                    let s = new_act.entry(nid).or_insert(0.0);
+                    if r > *s { *s = r; }
+                }
+            }
+            for (id, e) in new_act {
+                let slot = activation.entry(id).or_insert(0.0);
+                if e > *slot { *slot = e; }
+            }
+        }
+
+        let mut sorted: Vec<(u64, f64)> = activation.into_iter()
+            .filter(|&(_, s)| s >= min_threshold).collect();
+        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let flabel = relation_filter.unwrap_or("all");
+        let mut out = format!(
+            "=== VYOUM FILTERED THOUGHT (relation={}, {} concepts) ===\n\n",
+            flabel, sorted.len()
+        );
+        for (step, (nid, score)) in sorted.iter().enumerate() {
+            if let Some(node) = graph.get(nid) {
+                out.push_str(&format!("Step {}: [{}] (Activation: {:.3})\n", step + 1, node.concept, score));
+                if let Some((pid, ref rel, conf)) = activated_via.get(nid) {
+                    if let Some(par) = graph.get(pid) {
+                        out.push_str(&format!("  <- via: [{}] {} (conf: {:.2})\n", par.concept, rel.symbol(), conf));
+                    }
+                } else if seeds_found.contains(nid) {
+                    out.push_str("  <- [SEED]\n");
+                }
+                out.push('\n');
+            }
+        }
+        if sorted.is_empty() {
+            out.push_str(&format!("No '{}' relation chains found from given seeds.\n", flabel));
+        }
+        out
     }
 }

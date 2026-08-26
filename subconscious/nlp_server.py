@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Optional
 import spacy
 from nltk.corpus import wordnet as wn
 import nltk
 import sys
+import urllib.request
+import urllib.parse
+import json
+import random
 
 if sys.platform == "win32":
     try:
@@ -316,9 +320,183 @@ def offline_chat(req: ChatRequest):
             return {"answer": final_answer}
     except Exception as e:
         return {"answer": f"[SYSTEM_ERR] Neural link severed: {str(e)}"}
+# ============================================================
+# SMART EAR + SMART MOUTH -- No External API Required
+# ============================================================
 
-if __name__ == "__main__":
+RUST_ENGINE = 'http://localhost:8080'
+
+HINDI_CONCEPT_MAP = {
+    'roshni': ['Light', 'Optics', 'Photon', 'Electromagnetic Radiation'],
+    'taakat': ['Force', 'Energy', 'Power', 'Momentum'],
+    'waqt':   ['Time', 'Spacetime', 'Temporal'],
+    'gravity': ['Gravity', 'Gravitational Force', 'General Relativity'],
+    'bijli':  ['Electricity', 'Electromagnetism', 'Electric Field'],
+    'dhara':  ['Current', 'Flow', 'Fluid'],
+    'aasman': ['Space', 'Universe', 'Cosmology'],
+    'pani':   ['Water', 'Fluid Dynamics', 'Hydrodynamics'],
+    'aag':    ['Fire', 'Thermodynamics', 'Heat', 'Combustion'],
+    'hawa':   ['Air', 'Atmosphere', 'Fluid Dynamics'],
+    'sabit':  ['Proof', 'Theorem', 'Proves', 'Axiom'],
+    'galat':  ['Contradiction', 'Falsification', 'Error', 'Paradox'],
+    'sahi':   ['Truth', 'Valid', 'Axiom', 'Formal Logic'],
+    'rishta': ['Relation', 'Connection', 'Link', 'Causality'],
+    'sankhya':['Number', 'Number Theory', 'Mathematics'],
+    'hisaab': ['Calculation', 'Arithmetic', 'Calculus'],
+    'duniya': ['Reality', 'World', 'Universe', 'Physics'],
+    'zindagi':['Life', 'Biology', 'Consciousness'],
+    'insan':  ['Human', 'Consciousness', 'Anthropology'],
+    'khuda':  ['God', 'Existence', 'Metaphysics', 'Causality'],
+    'sach':   ['Truth', 'Axiom', 'Reality'],
+    'jhoot':  ['Falsification', 'Contradiction', 'Paradox'],
+    'mauka':  ['Probability', 'Chance', 'Quantum Mechanics'],
+    'vichar': ['Thought', 'Consciousness', 'Cognition'],
+    'gyan':   ['Knowledge', 'Epistemology', 'Information Theory'],
+}
+
+INTENT_PATTERNS = {
+    'CONTRADICT': ['galat sabit', 'jhuta sabit', 'galat hai', 'disprove', 'contradict',
+                   'prove wrong', 'sabit karo galat', 'refute', 'falsify', 'jhoot'],
+    'CONNECT':    ['rishta', 'juda hai', 'kya sambandh', 'kaise juda', 'connected',
+                   'link between', 'relation between', 'farq', 'difference', 'kya fark'],
+    'REASON':     ['kyun', 'karan', 'kaise hota', 'why', 'cause', 'reason', 'kya wajah'],
+    'PROCESS':    ['kaise kaam', 'kaise chalta', 'process', 'how does', 'mechanism'],
+    'WISDOM':     ['sabse important', 'core belief', 'wisdom', 'best', 'central',
+                   'sabse bada', 'mukhya', 'fundamental'],
+    'DEFINE':     ['kya hai', 'what is', 'define', 'matlab', 'meaning', 'explain'],
+}
+
+def detect_intent(query: str) -> str:
+    q = query.lower()
+    for intent, patterns in INTENT_PATTERNS.items():
+        if any(p in q for p in patterns):
+            return intent
+    return 'DEFINE'
+
+def extract_concepts_smart(query: str) -> list:
+    candidates = []
+    q_lower = query.lower()
+    for hindi_word, english_list in HINDI_CONCEPT_MAP.items():
+        if hindi_word in q_lower:
+            candidates.extend(english_list)
+    if 'nlp' in globals():
+        doc = nlp(query)
+        for token in doc:
+            if token.pos_ in ['NOUN', 'PROPN'] and not token.is_stop and len(token.lemma_) > 2:
+                candidates.append(token.lemma_.title())
+    seen = set()
+    result = []
+    for c in candidates:
+        if c.lower() not in seen:
+            seen.add(c.lower())
+            result.append(c)
+    return result[:5] if result else []
+
+def call_rust(path: str, payload=None, method='POST') -> dict:
+    import urllib.request, json
+    try:
+        url = RUST_ENGINE + path
+        if method == 'GET':
+            req = urllib.request.Request(url)
+        else:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return {'error': str(e)}
+
+def stitch_chain_to_speech(chain: str, intent: str, concepts: list) -> str:
+    if not chain:
+        return "Chain of thought is empty."
+    lines = chain.strip().split('\n')
+    steps = []
+    for line in lines:
+        if line.startswith('Step ') and '[' in line:
+            concept = line.split('[')[1].split(']')[0]
+            if concept.startswith('Q') and concept[1:].replace('_','').isdigit():
+                continue
+            steps.append(concept)
+    if not steps:
+        return 'Mera neural graph mein is topic pe abhi kafi connections nahi hain.'
+    if intent == 'CONNECT':
+        if len(steps) >= 2:
+            path_str = ' -> '.join(steps[:8])
+            return 'Logical connection found:\n' + path_str
+        return 'Connected to: ' + ', '.join(steps[:5])
+    elif intent == 'CONTRADICT':
+        return ('Ye concepts contradict karte hain:\n' + '\n'.join('  - ' + c for c in steps[:12]))
+    elif intent == 'REASON':
+        return ('Ye hain kaaran/wajah:\n' + '\n'.join('  - ' + c for c in steps[:12]))
+    elif intent == 'PROCESS':
+        return ('Process/mechanism:\n' + '\n'.join('  - ' + c for c in steps[:12]))
+    elif intent == 'WISDOM':
+        return ('Core beliefs:\n' + '\n'.join('  ' + str(i+1) + '. ' + c for i, c in enumerate(steps[:10])))
+    else:
+        return ('Main connections:\n' + '\n'.join('  - ' + c for c in steps[:15]))
+
+
+class SmartQueryRequest(BaseModel):
+    query: str
+
+@app.post('/smart_query')
+def smart_query(req: SmartQueryRequest):
+    query = req.query.strip()
+    print(f"\n[{'='*40}]")
+    print(f"🎙️ [SMART EAR] Received Query: '{query}'")
+    
+    intent = detect_intent(query)
+    print(f"🎯 [INTENT DETECTED]: {intent}")
+    
+    concepts = extract_concepts_smart(query)
+    print(f"🧠 [CONCEPTS EXTRACTED]: {concepts}")
+    
+    if not concepts:
+        print("❌ [WARNING] No concepts extracted. Returning generic fallback.")
+        return {'answer': 'Sawal samajh nahi aaya. Thoda aur specific karein.', 'intent': intent, 'concepts': []}
+    
+    thought_chain = ''
+    if intent == 'CONNECT' and len(concepts) >= 2:
+        print(f"🔗 [RUST ENGINE] Firing /api/deduce with start='{concepts[0]}' and goal='{concepts[-1]}'")
+        rust_response = call_rust('/api/deduce', {'start': concepts[0], 'goal': concepts[-1]})
+        if rust_response.get('proven'):
+            print("✅ [RUST ENGINE] Proof Path Found!")
+            return {'answer': 'Path found:\n' + rust_response.get('explanation', ''), 'intent': intent, 'concepts': concepts}
+        print("⚠️ [RUST ENGINE] No direct proof found. Falling back to Thought Stream (No Filter).")
+        rust_response = call_rust('/api/thought_stream_filtered', {'concepts': concepts, 'relation_filter': None})
+        thought_chain = rust_response.get('thought_chain', '')
+    elif intent == 'CONTRADICT':
+        print(f"⚔️ [RUST ENGINE] Firing /api/thought_stream_filtered with relation_filter='Contradicts'")
+        rust_response = call_rust('/api/thought_stream_filtered', {'concepts': concepts, 'relation_filter': 'Contradicts'})
+        thought_chain = rust_response.get('thought_chain', '')
+    elif intent == 'REASON':
+        print(f"❓ [RUST ENGINE] Firing /api/thought_stream_filtered with relation_filter='Causes'")
+        rust_response = call_rust('/api/thought_stream_filtered', {'concepts': concepts, 'relation_filter': 'Causes'})
+        thought_chain = rust_response.get('thought_chain', '')
+    elif intent == 'WISDOM':
+        print(f"🦉 [RUST ENGINE] Firing /api/centrality")
+        rust_response = call_rust('/api/centrality', method='GET')
+        beliefs = rust_response.get('core_beliefs', [])
+        if beliefs:
+            ans = 'Core beliefs:\n' + '\n'.join('  ' + str(i+1) + '. ' + b['concept'] for i, b in enumerate(beliefs[:10]))
+            print(f"✅ [RUST ENGINE] Extracted {len(beliefs)} core beliefs.")
+            return {'answer': ans, 'intent': intent, 'concepts': concepts}
+        thought_chain = ''
+    else:
+        print(f"🔍 [RUST ENGINE] Firing /api/thought_stream_filtered with relation_filter='Implies'")
+        rust_response = call_rust('/api/thought_stream_filtered', {'concepts': concepts, 'relation_filter': 'Implies'})
+        thought_chain = rust_response.get('thought_chain', '')
+        if not thought_chain or 'No ' in thought_chain:
+            print("⚠️ [RUST ENGINE] No implications found. Falling back to un-filtered thought_stream.")
+            rust_response = call_rust('/api/thought_stream', {'concepts': concepts})
+            thought_chain = rust_response.get('thought_chain', '')
+            
+    print(f"⚙️ [RUST ENGINE RAW RESPONSE PREVIEW]:\n{thought_chain[:150]}...")
+    answer = stitch_chain_to_speech(thought_chain, intent, concepts)
+    print(f"🗣️ [SMART MOUTH] Final Spoken Output:\n{answer}")
+    print(f"[{'='*40}]\n")
+    return {'answer': answer, 'intent': intent, 'concepts': concepts, 'raw_preview': thought_chain[:300] if thought_chain else ''}
+
+if __name__ == '__main__':
     import uvicorn
-
-    # Run on port 8081 to avoid conflict with Rust Engine on 8080
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    uvicorn.run(app, host='0.0.0.0', port=8081)

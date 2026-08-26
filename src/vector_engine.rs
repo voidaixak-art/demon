@@ -92,6 +92,84 @@ impl VectorEngine {
         }
     }
 
+    /// Phase 2.2: Compute a DISTRIBUTIONAL vector from co-occurrence data.
+    /// Uses PPMI (Positive Pointwise Mutual Information) weighting.
+    /// Falls back to hash-based vector if insufficient co-occurrence data.
+    pub fn compute_distributional_vector(
+        engine: &crate::engine::AxiomEngine,
+        concept: &str,
+        dimension: &str,
+    ) -> Vec<f64> {
+        let clean = concept.to_lowercase();
+        let cooc = engine.cooccurrence.read().unwrap();
+
+        // Check if we have enough co-occurrence data for this word
+        let word_contexts = cooc.get(&clean);
+        let has_data = word_contexts.map_or(false, |ctx| ctx.len() >= 3);
+
+        if !has_data {
+            // Fallback to hash-based vector (not enough distributional data yet)
+            return Self::compute_concept_vector(concept, dimension);
+        }
+
+        let contexts = word_contexts.unwrap();
+
+        // Calculate total co-occurrence counts for PPMI
+        let total_cooc: f64 = cooc.values()
+            .flat_map(|ctx| ctx.values())
+            .sum();
+
+        let word_total: f64 = contexts.values().sum();
+
+        // Build PPMI-weighted vector using random projection
+        // (deterministic hash to project context words into 128-D space)
+        let mut vector = vec![0.0; Self::VECTOR_DIM];
+
+        for (context_word, &count) in contexts.iter() {
+            // Calculate PPMI
+            let context_total: f64 = cooc.values()
+                .filter_map(|ctx| ctx.get(context_word))
+                .sum();
+
+            if context_total < 1.0 || total_cooc < 1.0 { continue; }
+
+            let p_xy = count / total_cooc;
+            let p_x = word_total / total_cooc;
+            let p_y = context_total / total_cooc;
+
+            let pmi = (p_xy / (p_x * p_y)).ln();
+            let ppmi = pmi.max(0.0); // Positive PMI only
+
+            if ppmi > 0.0 {
+                // Project this context word into vector space using hash
+                let mut h = 5381u64;
+                for b in context_word.bytes() {
+                    h = ((h << 5).wrapping_add(h)).wrapping_add(b as u64);
+                }
+                // Spread the PPMI weight across multiple dimensions for robustness
+                let idx1 = (h as usize) % Self::VECTOR_DIM;
+                let idx2 = (h.wrapping_mul(31) as usize) % Self::VECTOR_DIM;
+                let idx3 = (h.wrapping_mul(97) as usize) % Self::VECTOR_DIM;
+                vector[idx1] += ppmi;
+                vector[idx2] += ppmi * 0.5;
+                vector[idx3] += ppmi * 0.25;
+            }
+        }
+
+        // L2 Normalize
+        let norm: f64 = vector.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm > 1e-6 {
+            for v in vector.iter_mut() {
+                *v /= norm;
+            }
+        } else {
+            // If PPMI produced a zero vector, fall back to hash
+            return Self::compute_concept_vector(concept, dimension);
+        }
+
+        vector
+    }
+
     pub fn run_dream_mutation(
         engine: &AxiomEngine,
         trials: usize,
@@ -169,19 +247,119 @@ impl VectorEngine {
         let orphan_count = orphans.len();
 
         let storage = engine.storage.read().unwrap();
-        storage.log_stream(
-            "DREAM",
-            &format!(
-                "🌙 Dream cycle complete: {} trials, formed {} new semantic synapses.",
-                trials,
-                successful.len()
-            ),
-        )?;
+        if !successful.is_empty() {
+            storage.log_stream(
+                "DREAM",
+                &format!(
+                    "🌙 Dream cycle complete: {} trials, formed {} new semantic synapses.",
+                    trials,
+                    successful.len()
+                ),
+            )?;
+        }
 
         Ok(DreamReport {
             total_trials: trials,
             successful_synapses: successful,
             consolidated_orphans: orphan_count,
         })
+    }
+
+    /// Resonates a raw string (sentence) against the entire vector space
+    /// to find the most conceptually similar nodes in the graph.
+    /// This acts as the "Native Ear" of the engine, bypassing NLP parsing.
+    pub fn resonate_sentence(
+        engine: &AxiomEngine,
+        sentence: &str,
+        top_k: usize,
+    ) -> Vec<(u64, String, f64)> {
+        let sentence_vec = Self::compute_concept_vector(sentence, "");
+        let graph = engine.graph.read().unwrap();
+        let mut scores = Vec::new();
+
+        for (&id, node) in graph.iter() {
+            let node_vec = node.vector.clone().unwrap_or_else(|| Self::compute_concept_vector(&node.concept, &node.dimension));
+            let score = Self::cosine_similarity(&sentence_vec, &node_vec);
+            
+            // Lower threshold because a long sentence will dilute the vector compared to a single word
+            if score > 0.01 { 
+                scores.push((id, node.concept.clone(), score));
+            }
+        }
+
+        scores.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        scores.into_iter().take(top_k).collect()
+    }
+
+    // === DisCoCat Tensor Mathematics ===
+
+    /// Adjectives act as 2D Matrices.
+    /// In a 128-dim space, full matrix is expensive, so we approximate with a diagonal matrix operation.
+    pub fn apply_adjective_matrix(noun_vec: &[f64], adj: &str) -> Vec<f64> {
+        let adj_vec = Self::compute_concept_vector(adj, "adjective");
+        let mut result = vec![0.0; Self::VECTOR_DIM];
+        for i in 0..Self::VECTOR_DIM {
+            result[i] = noun_vec[i] * (1.0 + adj_vec[i]); 
+        }
+        
+        let norm: f64 = result.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm > 1e-6 {
+            for v in result.iter_mut() {
+                *v /= norm;
+            }
+        }
+        result
+    }
+
+    /// Verbs act as 3D Tensors (Noun x Noun -> Meaning Space).
+    /// Performs ASYMMETRIC tensor contraction: Subject and Object are projected
+    /// into different dimensional subspaces to break symmetry.
+    /// "Dog bites Man" ≠ "Man bites Dog"
+    pub fn tensor_contraction(subj: &[f64], verb: &str, obj: &[f64]) -> Vec<f64> {
+        let verb_vec = Self::compute_concept_vector(verb, "verb");
+        let mut meaning_vector = vec![0.0; Self::VECTOR_DIM];
+        
+        for i in 0..Self::VECTOR_DIM {
+            let s = subj[i];
+            let o = obj[i];
+            let v = verb_vec[i];
+            
+            // ASYMMETRIC contraction: Subject dominates even dimensions,
+            // Object dominates odd dimensions. This ensures S↔O swap
+            // produces a DIFFERENT meaning vector.
+            if i % 2 == 0 {
+                // Even dims: Subject-heavy
+                meaning_vector[i] = (s * v * 1.5) + (o * v * 0.5) + (s * o);
+            } else {
+                // Odd dims: Object-heavy  
+                meaning_vector[i] = (s * v * 0.5) + (o * v * 1.5) + (s * o);
+            }
+        }
+        
+        let norm: f64 = meaning_vector.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm > 1e-6 {
+            for v in meaning_vector.iter_mut() {
+                *v /= norm;
+            }
+        }
+        meaning_vector
+    }
+
+    /// De-contracts a meaning vector back into the closest word. (The Native Mouth)
+    pub fn tensor_decontraction(engine: &AxiomEngine, meaning_vec: &[f64]) -> String {
+        let graph = engine.graph.read().unwrap();
+        let mut best_word = String::from("unknown");
+        let mut best_score = -1.0;
+
+        for node in graph.values() {
+            let node_vec = node.vector.clone().unwrap_or_else(|| Self::compute_concept_vector(&node.concept, &node.dimension));
+            let score = Self::cosine_similarity(meaning_vec, &node_vec);
+            if score > best_score {
+                best_score = score;
+                best_word = node.concept.clone();
+            }
+        }
+        
+        best_word
     }
 }

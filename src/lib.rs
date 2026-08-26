@@ -7,3 +7,5 @@ pub mod server;
 pub mod storage;
 pub mod vector_engine;
 pub mod clustering;
+pub mod generator;
+pub mod language;

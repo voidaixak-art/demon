@@ -142,3 +142,16 @@ class AxiomClient:
         except Exception as e:
             print(f"[Client] Warning in get_context: {e}")
         return ""
+
+    def get_thought_stream(self, concepts: list) -> str:
+        """Call the Spreading Activation (Heat Diffusion) endpoint.
+        Returns a serialized Train of Thought chain instead of raw graph dump."""
+        payload = {"concepts": concepts}
+        try:
+            r = self.session.post(f"{self.base_url}/api/thought_stream", json=payload, timeout=15)
+            if r.status_code == 200:
+                return r.json().get("thought_chain", "")
+        except Exception as e:
+            print(f"[Client] Warning in get_thought_stream: {e}")
+        return ""
+

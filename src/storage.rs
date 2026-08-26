@@ -90,10 +90,23 @@ impl StorageManager {
         if wal_path.exists() {
             println!("🔄 Loading VYOUM memories from WAL (Fast-forwarding {} lines)...", data.last_wal_line);
             if let Ok(file) = File::open(&wal_path) {
-                let reader = BufReader::new(file);
+                let mut reader = BufReader::new(file);
+                
+                // BLAZING FAST SKIP: Reuse a single buffer to count newlines without allocating 22 million Strings
+                let mut buf = Vec::with_capacity(1024);
+                let mut skipped = 0;
+                while skipped < data.last_wal_line {
+                    buf.clear();
+                    match reader.read_until(b'\n', &mut buf) {
+                        Ok(0) | Err(_) => break, // EOF or Error
+                        Ok(_) => skipped += 1,
+                    }
+                }
+
                 let mut line_count = data.last_wal_line;
                 let mut processed = 0;
-                for line in reader.lines().skip(data.last_wal_line).flatten() {
+                
+                for line in reader.lines().flatten() {
                     line_count += 1;
                     processed += 1;
                     if processed % 100_000 == 0 {

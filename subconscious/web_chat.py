@@ -34,10 +34,32 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 async def chat_endpoint(req: ChatRequest):
     if not engine_chat.client.ping():
         return JSONResponse(status_code=500, content={"error": "Axiom Core daemon is not running."})
-    
+
+    try:
+        # PRIMARY: Route through NATIVE RUST VECTOR RESONANCE (Direct Ear & Mouth)
+        import urllib.request, json as _json
+        nlp_payload = _json.dumps({"query": req.message}).encode("utf-8")
+        nlp_req = urllib.request.Request(
+            "http://localhost:8080/api/smart_ask",
+            data=nlp_payload,
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(nlp_req, timeout=12) as r:
+            nlp_data = _json.loads(r.read().decode())
+            answer = nlp_data.get("thought_chain", "")
+            concepts = nlp_data.get("seed_concepts", [])
+            if answer:
+                return {
+                    "response": answer,
+                    "meta": {"intent": "NATIVE_RESONANCE", "concepts": concepts, "source": "RUST_ENGINE"}
+                }
+    except Exception as e:
+        print(f"   -> [Resonance fallback] Rust smart_ask unavailable ({e}), using Gemini pipeline...")
+
+    # FALLBACK: Original chat.py + Gemini pipeline
     try:
         response_text = engine_chat.ask(req.message)
-        return {"response": response_text}
+        return {"response": response_text, "meta": {"source": "GEMINI_FALLBACK"}}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

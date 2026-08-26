@@ -70,8 +70,25 @@ pub struct LogRequest {
 }
 
 #[derive(Deserialize)]
+pub struct ThoughtStreamRequest {
+    pub concepts: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct FilteredThoughtRequest {
+    pub concepts: Vec<String>,
+    pub relation_filter: Option<String>, // "Causes", "Contradicts", "Proves", "Implies", None=all
+}
+
+#[derive(Deserialize)]
 pub struct PaginationQuery {
     pub limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct SmartAskRequest {
+    pub query: String,
+    pub relation_filter: Option<String>,
 }
 
 pub fn create_router(engine: AxiomEngine) -> Router {
@@ -95,6 +112,9 @@ pub fn create_router(engine: AxiomEngine) -> Router {
         .route("/api/logs", get(get_logs_handler).post(add_log_handler))
         .route("/api/context", post(get_context_handler))
         .route("/api/ask", get(ask_handler))
+        .route("/api/smart_ask", post(smart_ask_handler))
+        .route("/api/thought_stream", post(thought_stream_handler))
+        .route("/api/thought_stream_filtered", post(filtered_thought_stream_handler))
         .route("/api/centrality", get(get_centrality_handler))
         .route("/api/domains", get(get_domains_handler))
         .route("/api/attention", post(get_attention_handler))
@@ -102,9 +122,48 @@ pub fn create_router(engine: AxiomEngine) -> Router {
         .route("/api/intuition", post(get_intuition_handler))
         .route("/api/momentum", get(get_momentum_handler))
         .route("/api/fusion", post(post_fusion_handler))
+        .route("/api/learn_language", post(learn_language_handler))
+        .route("/api/feedback", post(feedback_handler))
+        .route("/api/frustrations", get(get_frustrations_handler))
         .fallback_service(ServeDir::new("dashboard"))
         .layer(cors)
         .with_state(state)
+}
+
+async fn get_frustrations_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let frustrations = state.engine.cognitive_failures.read().unwrap().clone();
+    let score = *state.engine.frustration_score.read().unwrap();
+    Json(serde_json::json!({
+        "frustration_score": score,
+        "todo_list": frustrations
+    }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct FeedbackRequest {
+    path_node_ids: Vec<u64>,
+    reward: f64,
+}
+
+async fn feedback_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<FeedbackRequest>,
+) -> Json<serde_json::Value> {
+    state.engine.apply_reward(&payload.path_node_ids, payload.reward);
+    Json(serde_json::json!({ "status": "success", "message": "Feedback applied" }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct LearnLanguageRequest {
+    sentence: String,
+}
+
+async fn learn_language_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<LearnLanguageRequest>,
+) -> Json<serde_json::Value> {
+    state.engine.ingest_language(&payload.sentence);
+    Json(serde_json::json!({ "status": "success", "message": "Sentence ingested for offline tensor processing" }))
 }
 
 async fn get_stats_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -393,8 +452,76 @@ async fn post_fusion_handler(State(state): State<AppState>, Json(req): Json<Fusi
     }
 }
 
+/// Spreading Activation Endpoint — The "Mouth" of VYOUM
+/// Takes seed concepts, runs Heat Diffusion, returns serial chain of thought
+async fn thought_stream_handler(
+    State(state): State<AppState>,
+    Json(req): Json<ThoughtStreamRequest>,
+) -> Json<serde_json::Value> {
+    let chain = Reasoner::trace_thought_path(&state.engine, &req.concepts);
+    Json(serde_json::json!({
+        "thought_chain": chain,
+        "seed_concepts": req.concepts
+    }))
+}
+
+/// Relation-Filtered Spreading Activation — NLP Smart Query
+/// NLP layer specifies which relation type to follow (Causes/Contradicts/Proves/Implies)
+async fn filtered_thought_stream_handler(
+    State(state): State<AppState>,
+    Json(req): Json<FilteredThoughtRequest>,
+) -> Json<serde_json::Value> {
+    let filter = req.relation_filter.as_deref();
+    let chain = Reasoner::trace_thought_path_filtered(&state.engine, &req.concepts, filter);
+
+    Json(serde_json::json!({
+        "thought_chain": chain,
+        "seed_concepts": req.concepts,
+        "relation_filter": req.relation_filter
+    }))
+}
+
+/// DIRECT VECTOR RESONANCE ENDPOINT (The Native Ear)
+/// Takes a raw sentence, hashes it into the vector space, finds resonating nodes,
+/// and triggers spreading activation directly without Python/NLP.
+async fn smart_ask_handler(
+    State(state): State<AppState>,
+    Json(req): Json<SmartAskRequest>,
+) -> Json<serde_json::Value> {
+    // Calculate dynamic focus (seeds) based on sentence length
+    let word_count = req.query.split_whitespace().count();
+    let dynamic_limit = ((word_count / 3) + 3).clamp(3, 20);
+    
+    // 1. Resonate sentence in Vector space (Ear)
+    let resonances = VectorEngine::resonate_sentence(&state.engine, &req.query, dynamic_limit);
+
+    if resonances.is_empty() {
+        return Json(serde_json::json!({
+            "thought_chain": format!("I listened carefully to '{}', but none of its resonance matched my current neural graph.", req.query),
+            "seed_concepts": []
+        }));
+    }
+
+    // Convert top resonating concepts back into Strings to feed to Trace algorithm
+    let seed_concepts: Vec<String> = resonances.into_iter().map(|(_, concept, _)| concept).collect();
+
+    // 2. Diffuse Heat / Spreading Activation (Brain & Mouth)
+    let filter = req.relation_filter.as_deref();
+    let chain = Reasoner::trace_thought_path_filtered(&state.engine, &seed_concepts, filter);
+
+    Json(serde_json::json!({
+        "thought_chain": chain,
+        "seed_concepts": seed_concepts,
+        "relation_filter": req.relation_filter
+    }))
+}
+
 pub async fn run_server(engine: AxiomEngine, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    // Phase 3.1: Inject VYOUM Core DNA on boot
+    engine.initialize_vyoum_consciousness();
+
     // Spawn the cognitive mind loop in the background!
+    // AWAKE MODE - Dreaming is active!
     let engine_clone = engine.clone();
     tokio::spawn(async move {
         crate::mind::start_cognitive_loop(engine_clone).await;
@@ -469,7 +596,7 @@ async fn ask_handler(
         }))
     } else {
         Json(serde_json::json!({
-            "answer": format!("My subconscious has not yet encountered or analyzed the concept of '{}'. Try letting the crawlers read more.", params.q)
+            "answer": format!("I do not currently possess the axiomatic structures to deduce the concept of '{}'. I await manual structural injection.", params.q)
         }))
     }
 }

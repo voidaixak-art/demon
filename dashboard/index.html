@@ -1,30 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Axiom Neural Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <!-- Axiom Pure Terminal Interface -->
   <div class="terminal-container">
     <div class="terminal-header">
       <div class="terminal-title">AXIOM // NLP TERMINAL</div>
       <div style="flex:1"></div>
-      <a href="3d.html" style="color:#00ffcc; text-decoration:none; margin-right:20px; font-size:12px; border:1px solid #00ffcc; padding: 4px 8px; border-radius:4px;">[ LAUNCH 3D GRAPH ]</a>
+      <a href="3d.html"
+        style="color:#00ffcc; text-decoration:none; margin-right:20px; font-size:12px; border:1px solid #00ffcc; padding: 4px 8px; border-radius:4px;">[
+        LAUNCH 3D GRAPH ]</a>
       <div class="terminal-status"><span class="pulse"></span> NLP CORE ONLINE</div>
     </div>
-    
+
     <div class="voice-terminal" id="voice-terminal">
       <div class="voice-line system">Initializing Axiom NLP Core...</div>
       <div class="voice-line system">Connecting to Rust Graph Backend... OK.</div>
       <div class="voice-line system">Loading WordNet & Coreference Models... OK.</div>
     </div>
-    
+
     <form id="voice-form" class="voice-form">
       <span class="prompt-arrow">root@axiom:~$</span>
       <input type="text" id="voice-input" placeholder="Enter query..." autocomplete="off" autofocus />
@@ -34,4 +40,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

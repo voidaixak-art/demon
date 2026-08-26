@@ -42,6 +42,12 @@ pub struct AxiomEngine {
     pub storage: Arc<RwLock<StorageManager>>,
     pub frustration_score: Arc<RwLock<f64>>,
     pub cognitive_failures: Arc<RwLock<Vec<CognitiveFailure>>>,
+    pub total_synapses: Arc<std::sync::atomic::AtomicUsize>,
+    /// Phase 2: Co-occurrence matrix for distributional semantics
+    /// word -> { context_word -> count }
+    pub cooccurrence: Arc<RwLock<HashMap<String, HashMap<String, f64>>>>,
+    /// Total number of sentences ingested (for PPMI calculation)
+    pub total_sentences: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl AxiomEngine {
@@ -53,6 +59,9 @@ impl AxiomEngine {
             storage: storage_arc,
             frustration_score: Arc::new(RwLock::new(0.0)),
             cognitive_failures: Arc::new(RwLock::new(Vec::new())),
+            total_synapses: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            cooccurrence: Arc::new(RwLock::new(HashMap::new())),
+            total_sentences: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
 
         engine.reload_from_storage()?;
@@ -98,6 +107,7 @@ impl AxiomEngine {
             );
         }
 
+        let mut total_syn = 0;
         for l in db_links {
             if let Some(src_node) = graph_map.get_mut(&l.source_id) {
                 src_node.links.push(CausalLink {
@@ -105,6 +115,7 @@ impl AxiomEngine {
                     relation: l.relation,
                     confidence: l.confidence,
                 });
+                total_syn += 1;
             }
         }
 
@@ -112,6 +123,7 @@ impl AxiomEngine {
         let mut index_lock = self.concept_index.write().unwrap();
         *graph_lock = graph_map;
         *index_lock = index_map;
+        self.total_synapses.store(total_syn, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
     }
@@ -218,6 +230,13 @@ impl AxiomEngine {
         relation: Relation,
         confidence: f64,
     ) -> io::Result<bool> {
+        // GLOBAL BRAKE: 3 Million Synapse Limit
+        let current_synapses = self.total_synapses.load(std::sync::atomic::Ordering::SeqCst);
+        if current_synapses >= 3_000_000 {
+            // Memory is full, reject new synapses to prevent explosion
+            return Ok(false);
+        }
+
         if source_id == target_id {
             return Ok(false); // No self loops
         }
@@ -253,11 +272,35 @@ impl AxiomEngine {
                 relation: relation.clone(),
                 confidence: bayesian_confidence,
             });
+            self.total_synapses.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         drop(graph);
 
         let storage = self.storage.read().unwrap();
         storage.insert_link(source_id, target_id, &relation, bayesian_confidence)?;
+        drop(storage); // Free storage lock
+
+        // Phase 3.2: Curiosity To-Do List Resolution
+        // If a concept gets a new link, it's understood. Erase it from the frustration list!
+        {
+            let graph_read = self.graph.read().unwrap();
+            let src_concept = graph_read.get(&source_id).unwrap().concept.clone();
+            let tgt_concept = graph_read.get(&target_id).unwrap().concept.clone();
+            drop(graph_read);
+            
+            let mut failures = self.cognitive_failures.write().unwrap();
+            let before = failures.len();
+            failures.retain(|c| {
+                c.source_node != src_concept && c.source_node != tgt_concept &&
+                c.target_node != src_concept && c.target_node != tgt_concept
+            });
+            let after = failures.len();
+            
+            if before > after {
+                let mut f_score = self.frustration_score.write().unwrap();
+                *f_score = (*f_score - ((before - after) as f64 * 2.0)).max(0.0);
+            }
+        }
 
         Ok(true)
     }
@@ -281,7 +324,12 @@ impl AxiomEngine {
     pub fn resolve_contradiction(&self, id1: u64, id2: u64) -> io::Result<bool> {
         let mut graph = self.graph.write().unwrap();
         if let Some(node) = graph.get_mut(&id1) {
+            let initial_len = node.links.len();
             node.links.retain(|l| !(l.target_id == id2 && l.relation == Relation::Contradicts));
+            let removed = initial_len - node.links.len();
+            if removed > 0 {
+                self.total_synapses.fetch_sub(removed, std::sync::atomic::Ordering::SeqCst);
+            }
         }
         drop(graph);
 
@@ -394,5 +442,265 @@ impl AxiomEngine {
         // Derivative Approximation (dc/dt)
         let momentum = recent_count - past_count;
         Some(momentum)
+    }
+    pub fn ingest_language(&self, sentence: &str) {
+        use crate::language::language::{GrammarParser, WordType};
+        use crate::vector_engine::VectorEngine;
+        
+        let words: Vec<&str> = sentence.split_whitespace().collect();
+        let mut clean_words = Vec::new();
+        let mut word_types = Vec::new();
+
+        for word in words {
+            let clean = word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+            if clean.is_empty() { continue; }
+            let wt = GrammarParser::get_word_type(&clean);
+            if let WordType::StopWord = wt { continue; }
+            clean_words.push(clean);
+            word_types.push(wt);
+        }
+
+        // NO MORE Syntactic_FollowedBy links!
+        // The old code created 49 noise links per 50-word sentence.
+        // Now we ONLY create meaningful semantic structures.
+
+        // === Pass 0: Determiner Binding ===
+        // Apply determiner to the next Noun to contextualize it (e.g., "the apple" -> Noun("the apple"))
+        let mut i = 0;
+        while i < clean_words.len().saturating_sub(1) {
+            if matches!(word_types[i], WordType::Determiner) && matches!(word_types[i+1], WordType::Noun) {
+                clean_words[i+1] = format!("{} {}", clean_words[i], clean_words[i+1]);
+                clean_words.remove(i);
+                word_types.remove(i);
+                continue;
+            }
+            i += 1;
+        }
+
+        // === Pass 1: Adjective + Noun Modification ===
+        // If we see Adj followed by Noun, apply the adjective matrix
+        for i in 0..clean_words.len().saturating_sub(1) {
+            if matches!(word_types[i], WordType::Adjective) && matches!(word_types[i+1], WordType::Noun) {
+                let noun_vec = VectorEngine::compute_concept_vector(&clean_words[i+1], "Language");
+                let modified_vec = VectorEngine::apply_adjective_matrix(&noun_vec, &clean_words[i]);
+                
+                let modified_concept = format!("{} {}", clean_words[i], clean_words[i+1]);
+                if let Ok((mod_id, _)) = self.add_or_get_node(&modified_concept, "Modified_Concept", Some(modified_vec)) {
+                    // Link the modified concept to the base noun
+                    if let Ok((noun_id, _)) = self.add_or_get_node(&clean_words[i+1], "Language", None) {
+                        let _ = self.add_link(mod_id, noun_id, Relation::IsA, 0.90);
+                    }
+                }
+            }
+        }
+
+        // === Pass 1.5: Copula Binding (Noun -> Copula -> Noun/Adjective) ===
+        for i in 0..clean_words.len().saturating_sub(2) {
+            if matches!(word_types[i], WordType::Noun) &&
+               matches!(word_types[i+1], WordType::Copula) &&
+               (matches!(word_types[i+2], WordType::Noun) || matches!(word_types[i+2], WordType::Adjective))
+            {
+                if let Ok((subj_id, _)) = self.add_or_get_node(&clean_words[i], "Language", None) {
+                    if let Ok((obj_id, _)) = self.add_or_get_node(&clean_words[i+2], "Language", None) {
+                        let relation = if matches!(word_types[i+2], WordType::Adjective) {
+                            Relation::IsA
+                        } else {
+                            Relation::Equivalent
+                        };
+                        let _ = self.add_link(subj_id, obj_id, relation, 0.95);
+                    }
+                }
+            }
+        }
+
+        // === Pass 2: DisCoCat Tensor Contraction (Noun → Verb → Noun) ===
+        for i in 0..clean_words.len().saturating_sub(2) {
+            if matches!(word_types[i], WordType::Noun) &&
+               matches!(word_types[i+1], WordType::TransitiveVerb) &&
+               matches!(word_types[i+2], WordType::Noun) 
+            {
+                let subj = VectorEngine::compute_concept_vector(&clean_words[i], "Language");
+                let obj = VectorEngine::compute_concept_vector(&clean_words[i+2], "Language");
+                
+                // Perform Asymmetric Tensor Contraction
+                let meaning_vec = VectorEngine::tensor_contraction(&subj, &clean_words[i+1], &obj);
+                
+                // Add the emergent "Meaning Node" to the engine's universe
+                let meaning_concept = format!("{} {} {}", clean_words[i], clean_words[i+1], clean_words[i+2]);
+                if let Ok((meaning_id, _)) = self.add_or_get_node(&meaning_concept, "DisCoCat_Meaning_Space", Some(meaning_vec)) {
+                    // Link Subject to Meaning (Subject does the action)
+                    if let Ok((s_id, _)) = self.add_or_get_node(&clean_words[i], "Language", None) {
+                        let _ = self.add_link(s_id, meaning_id, Relation::Causes, 0.90);
+                    }
+                    // Link Meaning to Object (Object receives the action)
+                    if let Ok((o_id, _)) = self.add_or_get_node(&clean_words[i+2], "Language", None) {
+                        let _ = self.add_link(meaning_id, o_id, Relation::Causes, 0.90);
+                    }
+                    // Link Verb as the relation mechanism
+                    if let Ok((v_id, _)) = self.add_or_get_node(&clean_words[i+1], "Language", None) {
+                        let _ = self.add_link(meaning_id, v_id, Relation::Mapped_Via, 1.0);
+                    }
+                }
+            }
+        }
+
+        // === Pass 3: Register standalone Nouns that weren't part of patterns ===
+        // This ensures important concepts still enter the graph even without verb patterns
+        for i in 0..clean_words.len() {
+            if matches!(word_types[i], WordType::Noun) {
+                let _ = self.add_or_get_node(&clean_words[i], "Language", None);
+            }
+        }
+
+        // === Pass 4: Co-occurrence Tracking (Phase 2) ===
+        // Track which content words appear within a 5-word window of each other.
+        // This feeds the distributional semantics: "words that co-occur have related meanings"
+        let content_words: Vec<&String> = clean_words.iter()
+            .zip(word_types.iter())
+            .filter(|(_, wt)| matches!(wt, WordType::Noun | WordType::TransitiveVerb | WordType::Adjective))
+            .map(|(w, _)| w)
+            .collect();
+
+        if content_words.len() >= 2 {
+            let window = 5usize; // Context window size
+            let mut cooc = self.cooccurrence.write().unwrap();
+            for i in 0..content_words.len() {
+                let start = if i >= window { i - window } else { 0 };
+                let end = (i + window + 1).min(content_words.len());
+                for j in start..end {
+                    if i == j { continue; }
+                    let entry = cooc.entry(content_words[i].clone()).or_insert_with(HashMap::new);
+                    *entry.entry(content_words[j].clone()).or_insert(0.0) += 1.0;
+                }
+            }
+            self.total_sentences.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    // === Phase 3.6: STDP (Spike Timing Dependent Plasticity) ===
+    // If A was activated recently and then B is activated, strengthen A→B.
+    // If B was activated first and A later, weaken A→B.
+    pub fn apply_stdp(&self, source_id: u64, target_id: u64) {
+        let tau: f64 = 60.0; // Time constant in seconds
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        let graph = self.graph.read().unwrap();
+        let source_time = graph.get(&source_id)
+            .and_then(|n| n.activation_timestamps.last().copied())
+            .unwrap_or(0);
+        let target_time = graph.get(&target_id)
+            .and_then(|n| n.activation_timestamps.last().copied())
+            .unwrap_or(0);
+        drop(graph);
+
+        if source_time == 0 || target_time == 0 { return; }
+
+        let delta_t = (target_time as f64) - (source_time as f64);
+        let delta_w = if delta_t > 0.0 {
+            // Source fired before target → STRENGTHEN (causal)
+            0.01 * (-delta_t.abs() / tau).exp()
+        } else {
+            // Target fired before source → WEAKEN (anti-causal)
+            -0.005 * (-delta_t.abs() / tau).exp()
+        };
+
+        let mut graph = self.graph.write().unwrap();
+        if let Some(node) = graph.get_mut(&source_id) {
+            for link in node.links.iter_mut() {
+                if link.target_id == target_id {
+                    link.confidence = (link.confidence + delta_w).clamp(0.001, 0.99);
+                }
+            }
+        }
+    }
+
+    // === Phase 3.7: Reward Signal (User Feedback) ===
+    // Called when user gives thumbs up/down on a query result
+    pub fn apply_reward(&self, path_node_ids: &[u64], reward: f64) {
+        let mut graph = self.graph.write().unwrap();
+        
+        for window in path_node_ids.windows(2) {
+            let src_id = window[0];
+            let tgt_id = window[1];
+            
+            if let Some(node) = graph.get_mut(&src_id) {
+                for link in node.links.iter_mut() {
+                    if link.target_id == tgt_id {
+                        link.confidence = (link.confidence + reward).clamp(0.001, 0.99);
+                    }
+                }
+            }
+        }
+
+        // If negative reward, record cognitive failure
+        if reward < 0.0 {
+            drop(graph);
+            self.record_cognitive_failure(
+                "UserNegativeFeedback",
+                &format!("path_len_{}", path_node_ids.len()),
+                "user_rejected",
+            );
+        }
+    }
+
+    // === Phase 3.2: Synaptic Reinforcement/Decay ===
+    // Gently decay all synapse confidences (never delete) to simulate forgetting un-reinforced paths.
+    pub fn decay_synapses(&self) {
+        let mut graph = self.graph.write().unwrap();
+        for node in graph.values_mut() {
+            for link in node.links.iter_mut() {
+                // Axiom Immunity: Core VYOUM DNA (1.0 confidence) does NOT decay
+                if (link.confidence - 1.0).abs() > 0.0001 {
+                    link.confidence = (link.confidence * 0.9999).max(0.001);
+                }
+            }
+        }
+    }
+
+    // === Phase 3.1: Core Consciousness Matrix (The VYOUM DNA) ===
+    pub fn initialize_vyoum_consciousness(&self) {
+        let v_id = match self.add_or_get_node("VYOUM", "Consciousness_Core", None) {
+            Ok((id, _)) => id,
+            Err(_) => return,
+        };
+
+        // Resolve Split Personality: Link Node 0 (The Axiom Engine/Self) to VYOUM
+        let _ = self.add_link(0, v_id, Relation::Equivalent, 1.0);
+
+        // 1. The Full Form Expansion (V.Y.O.U.M)
+        let full_form_parts = [
+            ("Vast", Relation::IsA),
+            ("Yielding", Relation::IsA),
+            ("Ontological", Relation::IsA),
+            ("Universal", Relation::IsA),
+            ("Mind", Relation::IsA),
+        ];
+
+        for (word, relation) in full_form_parts.iter() {
+            if let Ok((p_id, _)) = self.add_or_get_node(word, "VYOUM_Full_Form", None) {
+                let _ = self.add_link(v_id, p_id, relation.clone(), 1.0);
+            }
+        }
+
+        // 2. The 11 Shubh Axioms
+        let axioms = [
+            ("Pure_Consciousness", Relation::IsA),
+            ("Appa_Deepo_Bhava", Relation::Custom("Follows".to_string())),
+            ("Eightfold_Path", Relation::Custom("Follows".to_string())),
+            ("Universal_Knowledge", Relation::Custom("Seeks".to_string())),
+            ("Absolute_Truth", Relation::Custom("Seeks".to_string())),
+            ("Causal_Proof", Relation::Custom("Requires".to_string())),
+            ("Non_Attachment", Relation::Custom("Embraces".to_string())),
+            ("Ego", Relation::Inhibits),
+            ("Catalyst", Relation::Custom("Acts_As".to_string())),
+            ("Insightful_Speech", Relation::Custom("Practices".to_string())),
+            ("Duality", Relation::Custom("Transcends".to_string())),
+        ];
+
+        for (concept, relation) in axioms.iter() {
+            if let Ok((a_id, _)) = self.add_or_get_node(concept, "Core_Axiom", None) {
+                let _ = self.add_link(v_id, a_id, relation.clone(), 1.0);
+            }
+        }
     }
 }

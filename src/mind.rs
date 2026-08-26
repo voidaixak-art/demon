@@ -7,16 +7,30 @@ pub async fn start_cognitive_loop(engine: AxiomEngine) {
     println!("🧠 [Mind] Cognitive Background Thread started (System 2).");
     println!("🧠 [Mind] The Engine is now a living entity capable of offline deduction and dreaming.");
 
+    let is_linux = std::env::consts::OS == "linux";
+    if is_linux {
+        println!("🚀 [Mind] Linux (Colab) detected! Engaging OVERCLOCK MODE.");
+    } else {
+        println!("🐢 [Mind] Windows (Local) detected! Engaging CHILL MODE.");
+    }
+
     loop {
-        // Sleep for a set interval (simulate waking state before taking action)
-        sleep(Duration::from_secs(3)).await;
+        // Automatically switch speed based on where it's running!
+        let sleep_duration = if is_linux { 10 } else { 3000 };
+        sleep(Duration::from_millis(sleep_duration)).await;
 
         let engine_clone = engine.clone();
         tokio::task::spawn_blocking(move || {
             let engine = engine_clone;
             
+            let is_linux = std::env::consts::OS == "linux";
+            let batch_mult = if is_linux { 10 } else { 1 };
+            
+            // Phase 3.2: Synaptic Reinforcement/Decay
+            engine.decay_synapses();
+            
             // 1. Vector Mutation Dream
-            match VectorEngine::run_dream_mutation(&engine, 20, 0.65) {
+            match VectorEngine::run_dream_mutation(&engine, 20 * batch_mult, 0.65) {
                 Ok(report) => {
                     if !report.successful_synapses.is_empty() {
                         println!("\n🧠 [Mind] Offline Dream Cycle (Vector) Complete!");
@@ -30,7 +44,7 @@ pub async fn start_cognitive_loop(engine: AxiomEngine) {
             }
 
             // 2. Transitive Inference Dream (Mathematical Deduction)
-            match crate::reasoner::Reasoner::run_transitive_dream(&engine, 50) {
+            match crate::reasoner::Reasoner::run_transitive_dream(&engine, 50 * batch_mult) {
                 Ok(successful) => {
                     if !successful.is_empty() {
                         println!("\n🧠 [Mind] Offline Dream Cycle (Math Deduction) Complete!");
@@ -56,7 +70,7 @@ pub async fn start_cognitive_loop(engine: AxiomEngine) {
             }
 
             // 3.5 Contradiction Generator
-            match crate::reasoner::Reasoner::run_contradiction_dream(&engine, 200) {
+            match crate::reasoner::Reasoner::run_contradiction_dream(&engine, 200 * batch_mult) {
                 Ok(contradictions) => {
                     if !contradictions.is_empty() {
                         println!("\n🧠 [Mind] Offline Dream Cycle (Contradiction Generator) Complete!");
@@ -69,7 +83,7 @@ pub async fn start_cognitive_loop(engine: AxiomEngine) {
             }
 
             // 3.6 Proof Verifier
-            match crate::reasoner::Reasoner::run_proof_dream(&engine, 200) {
+            match crate::reasoner::Reasoner::run_proof_dream(&engine, 200 * batch_mult) {
                 Ok(proofs) => {
                     if !proofs.is_empty() {
                         println!("\n🧠 [Mind] Offline Dream Cycle (Proof Verifier) Complete!");
@@ -82,7 +96,7 @@ pub async fn start_cognitive_loop(engine: AxiomEngine) {
             }
 
             // 3.7 Evolutionary Relation Synthesizer
-            match crate::reasoner::Reasoner::run_evolutionary_dream(&engine, 200) {
+            match crate::reasoner::Reasoner::run_evolutionary_dream(&engine, 200 * batch_mult) {
                 Ok(laws) => {
                     if !laws.is_empty() {
                         println!("\n🧠 [Mind] Offline Dream Cycle (Evolutionary Synthesis) Complete!");
@@ -117,22 +131,7 @@ pub async fn start_cognitive_loop(engine: AxiomEngine) {
                 }
             }
 
-            // 5. Phase 10: Meta-Cognition (Self-Awareness)
-            let frustration = { *engine.frustration_score.read().unwrap() };
-            if frustration > 10.0 {
-                let failures = { engine.cognitive_failures.read().unwrap().clone() };
-                if !failures.is_empty() {
-                    let dump = serde_json::json!({
-                        "frustration_level": frustration,
-                        "primary_failure": failures.last().unwrap(),
-                        "total_failures_in_cycle": failures.len(),
-                    });
-                    println!("\n[M2M_COGNITIVE_DUMP]\n{}\n", serde_json::to_string_pretty(&dump).unwrap_or_default());
-                }
-                // Reset frustration after crying for help
-                *engine.frustration_score.write().unwrap() = 0.0;
-                engine.cognitive_failures.write().unwrap().clear();
-            }
+            // 5. Phase 10: Meta-Cognition is now handled via the /api/frustrations endpoint by the Python Environment
         }).await.unwrap();
     }
 }

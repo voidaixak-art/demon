@@ -27,7 +27,7 @@ voiceForm.addEventListener('submit', async (e) => {
       body: JSON.stringify({ query: query })
     });
     const data = await res.json();
-    
+
     // The NLP server formats the response naturally
     const lines = data.answer.split('\n');
     lines.forEach(line => {
