@@ -1,6 +1,6 @@
 # VYOUM AGI - CUSTOM DUAL LICENSE
 
-**Copyright (c) [2026] Aakash**
+**Copyright (c) [2026] Akash Gautam**
 
 ## 1. Preamble
 The "Axiom Engine" and the "VYOUM AGI" framework were created and architected by Aakash. This license governs the use, modification, and distribution of this software.
